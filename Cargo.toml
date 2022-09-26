@@ -1,8 +1,11 @@
-[package]
-name = "inkwina"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+members = [
+	"src/inkwina-cli",
+    "src/inkwinad",
+    "src/libinkwina",
+    "src/inkwina-wayland",
+    "src/inkwina-ipc"
+]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
+[profile.release]
+codegen-units = 1
