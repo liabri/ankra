@@ -10,10 +10,6 @@ fn cangjie_commit_key() {
     test_input(&[
         (38, AnkraResponse::Suggest(String::from("日"))),
         (65, AnkraResponse::Commit(String::from("日"))),
-
-        //commit then change method to kana
-        (25, AnkraResponse::Commit(String::from("く"))),
-        (65, AnkraResponse::Undefined)
     ])
 }
 
