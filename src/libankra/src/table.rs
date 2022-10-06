@@ -23,6 +23,7 @@ impl TableState {
     pub fn new(id: &str, path: &Path) -> Result<Self, AnkraError> {
         Ok(Self {
             table: Table::from_path(id, &path)?,
+            config: TableConfig::from_path(id, &path)?,
             ..Default::default()
         })
     }
@@ -38,7 +39,7 @@ impl TableState {
     	// }
 
     	if let Some(c) = self.config.keycode_to_char(&key_code) {
-    		self.key_sequence.push_str(&c);
+    		self.key_sequence.push(*c);
     	}
 
         //change method when key sequence is empty on backspace
@@ -89,37 +90,6 @@ impl TableState {
         self.key_sequence.clear();
         self.previous_character.clear();
     }
-
-    // pub fn calculate_char_dict(&mut self) -> Option<String> {
-    //     //Tolerate index
-    //     if !self.key_sequence.is_empty() {
-    //         if self.index>=self.relative_entries.len() {
-    //             self.index = 0
-    //         }
-
-    //         // let key_sequence: &str = &self.key_sequence;
-
-    //If relative entries is not yet made, make it
-        // if key_sequence.len()==1 { 
-        //     self.relative_entries.clear();
-        //     for entry in &self.table.entries {
-        //         if entry.sequence.starts_with(&self.key_sequence) {
-        //             self.relative_entries.push(entry.clone());
-        //         }
-        //     }
-        //  } else {
-        //      //Filter by remove non-matching entries from relative_entries
-             // self.relative_entries.retain(|entry| entry.sequence.starts_with(&*key_sequence));
-        //     }
-
-    //         //Get candidate
-            // if let Some(entry) = self.relative_entries.get(self.index).map(|x| x.to_owned()) {
-            //     return Some(entry.character.to_string());
-            // }
-    //     }
-
-    //     None
-    // }
 }
 
 #[derive(Default, Debug, PartialEq, Deserialize)]
@@ -135,8 +105,8 @@ pub struct Entry {
 }
 
 impl Table {
-    pub fn from_path(id: &str, base_dir: &Path) -> Result<Table, AnkraError> {
-        let path = base_dir.join("tables").join(id).with_extension("dict");
+    pub fn from_path(id: &str, base_dir: &Path) -> Result<Self, AnkraError> {
+        let path = base_dir.join(id).with_extension("csv");
         let file = File::open(path)?;
         let reader = BufReader::new(file);
         let entries = csv::Reader::from_reader(reader).deserialize().collect::<Result<Vec<_>, _>>()?;
@@ -155,14 +125,14 @@ pub struct TableConfig {
 }
 
 impl TableConfig {
-    pub fn from_path(id: &str, base_dir: &Path) -> Result<Table, AnkraError> {
+    pub fn from_path(id: &str, base_dir: &Path) -> Result<Self, AnkraError> {
         let path = base_dir.join(id).with_extension("zm");
         let file = File::open(path)?;
         let reader = BufReader::new(file);
         Ok(zmerald::from_reader(reader).unwrap())
     }
 
-    pub fn keycode_to_char(&self, keycode: &KeyCode) -> Option<&str> {
-        todo!()
+    pub fn keycode_to_char(&self, keycode: &KeyCode) -> Option<&char> {
+        self.keys.get(keycode).unwrap().first()
     }
 }
