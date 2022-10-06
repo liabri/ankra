@@ -32,14 +32,18 @@ impl TableState {
         let mut commit = false;
     	match self.config.keycode_to_spec(&key_code).as_deref() {
     		Some("COMMIT") => commit = true,
-    		Some("BACKSPACE") => { self.key_sequence.pop(); },
     		Some("NEXT") => self.index = self.index+1,
     		Some("PREV") => self.index = self.index-1,
-    		_ => {},
-    	}
-
-    	if let Some(c) = self.config.keycode_to_char(&key_code) {
-    		self.key_sequence.push(*c);
+            Some("BACKSPACE") => { 
+                self.key_sequence.pop();
+                self.relative_entries.clear(); 
+            },
+    		
+            _ => {
+                if let Some(c) = self.config.keycode_to_char(&key_code) {
+                    self.key_sequence.push(*c);
+                }
+            }
     	}
 
         //change method when key sequence is empty on backspace
@@ -47,18 +51,21 @@ impl TableState {
         //    return AnkraResponse::Function(Function::ChangeMethodTo(changemethodto))
         // }
 
+        println!("key_sequence: {}", self.key_sequence);
+
         // get value from dict.csv
         let result = {
-            if self.key_sequence.len()==1 {
+            if self.relative_entries.is_empty() {
                 for entry in &self.table.entries {
                     if entry.sequence.starts_with(&self.key_sequence) {
                         self.relative_entries.push(entry.clone());
                     }
                 }
-            } else {
-                 self.relative_entries.retain(|entry| entry.sequence.starts_with(&self.key_sequence));
+            } else {          
+                self.relative_entries.retain(|entry| entry.sequence.starts_with(&self.key_sequence));
             }
 
+            println!("relative entries: {:?}", self.relative_entries);
             if let Some(entry) = self.relative_entries.get(self.index).map(|x| x.to_owned()) {
                 Some(entry.character.to_string())
             } else {
