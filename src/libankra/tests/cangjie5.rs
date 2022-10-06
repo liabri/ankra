@@ -3,7 +3,7 @@ mod shared;
 
 use ankra::AnkraResponse;
 
-define_layout_test!("cangjie5s");
+define_layout_test!("cangjie5");
 
 #[test]
 fn cangjie_commit_key() {
