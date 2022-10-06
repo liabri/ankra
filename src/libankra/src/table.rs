@@ -30,13 +30,13 @@ impl TableState {
 
     pub fn on_key_press(&mut self, key_code: u16) -> AnkraResponse {
         let mut commit = false;
-    	// match self.calculate_special_key(&key_code).as_deref() {
-    	// 	Some("COMMIT") => commit = true,
-    	// 	Some("BACKSPACE") => self.key_sequence.pop(),
-    	// 	Some("NEXT") => self.index = self.index+1,
-    	// 	Some("PREV") => self.index = self.index-1,
-    	// 	_ => {},
-    	// }
+    	match self.config.keycode_to_spec(&key_code).as_deref() {
+    		Some("COMMIT") => commit = true,
+    		Some("BACKSPACE") => { self.key_sequence.pop(); },
+    		Some("NEXT") => self.index = self.index+1,
+    		Some("PREV") => self.index = self.index-1,
+    		_ => {},
+    	}
 
     	if let Some(c) = self.config.keycode_to_char(&key_code) {
     		self.key_sequence.push(*c);
@@ -133,6 +133,10 @@ impl TableConfig {
     }
 
     pub fn keycode_to_char(&self, keycode: &KeyCode) -> Option<&char> {
-        self.keys.get(keycode).unwrap().first()
+        self.keys.get(keycode)?.first()
+    }
+
+    pub fn keycode_to_spec(&self, keycode: &KeyCode) -> Option<&str> {
+        self.specs.get(keycode)?.first().map(|x| &**x)
     }
 }
