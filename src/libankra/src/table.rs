@@ -30,22 +30,28 @@ impl TableState {
 
     pub fn on_key_press(&mut self, key_code: u16) -> AnkraResponse {
         let mut commit = false;
-    	match self.config.keycode_to_spec(&key_code).as_deref() {
-    		Some("COMMIT") => commit = true,
-    		Some("NEXT") => self.index = self.index+1,
-    		Some("PREV") => self.index = self.index-1,
+    	match self.config.keycode_to_spec(&key_code).map(|x| x.chars().next()).flatten() {
+    		Some('C') => commit = true,
+    		Some('N') => self.index = self.index+1,
+    		Some('P') => self.index = self.index-1,
 
-            Some("BACKSPACE") => { 
+            Some('B') => { 
                 self.key_sequence.pop();
                 self.relative_entries.clear(); 
             },
     		
+            Some(x @ '0'..='9') => {
+                self.index = (x as usize)-49; //hacky af conversion
+            }
+
             _ => {
                 if let Some(c) = self.config.keycode_to_char(&key_code) {
                     self.key_sequence.push(*c);
                 }
             }
     	}
+
+        println!("INDEX: {}", self.index);
 
         // get value from dict.csv
         let result = {
