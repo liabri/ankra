@@ -35,9 +35,18 @@ impl TableState {
     		Some('N') => self.index = self.index+1,
     		Some('P') => self.index = self.index-1,
 
+            // Escape is only considered a key when in input mode
+            Some('E') => {
+                if self.key_sequence.len()>0 {
+                    self.reset();
+                    return AnkraResponse::Empty
+                }
+            },
+
             Some('B') => { 
                 self.key_sequence.pop();
                 self.relative_entries.clear(); 
+                return AnkraResponse::Undefined
             },
     		
             Some(x @ '0'..='9') => {
@@ -50,8 +59,6 @@ impl TableState {
                 }
             }
     	}
-
-        println!("INDEX: {}", self.index);
 
         // get value from dict.csv
         let result = {
@@ -68,22 +75,25 @@ impl TableState {
             if let Some(entry) = self.relative_entries.get(self.index).map(|x| x.to_owned()) {
                 Some(entry.character.to_string())
             } else {
-                None
+                self.reset();
+                return AnkraResponse::Empty
             }
         };
 
         // interpret value from dict.csv
         if let Some(value) = result {
-            if commit {
-                self.reset();
-                return AnkraResponse::Commit(value)
-            } else {
-                return AnkraResponse::Suggest(value)
+            if !self.key_sequence.is_empty() {
+                if commit {
+                    self.reset();
+                    return AnkraResponse::Commit(value)
+                } else {
+                    return AnkraResponse::Suggest(value)
+                }
             }
-        } else {
-            self.reset();
-            return AnkraResponse::Empty
         }
+
+        self.reset();
+        return AnkraResponse::Undefined
     }
 
     pub fn on_key_release(&mut self, key_code: u16) -> AnkraResponse {

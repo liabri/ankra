@@ -192,21 +192,15 @@ impl AnkraContext {
                 }
             },
 
-            // KeyEvent::Modifiers { mods_depressed, mods_latched, mods_locked, group, .. } => {
-            //     self.mod_state = true;
-            //     if 0 != mods_depressed & (ModifierState::CONTROL as u32) {
-            //         self.mod_state = false;
-            //     } else if 0 != mods_depressed & (ModifierState::SUPER as u32) {
-            //         self.mod_state = false;
-            //     } //else if 0 != mods_depressed & (ModifierState::LALT as u32) {
-            //     //     println!("LALT");
-            //     //     self.mod_state = false;
-            //     // }
+            KeyEvent::Modifiers { mods_depressed, mods_latched, mods_locked, group, .. } => {
+                self.mod_state = true;
 
-            //     //Need to figure out how to differentiate between L_ALT and R_ALT
+                if mods_depressed!=0 || mods_latched !=0 || mods_locked !=0 {
+                    self.mod_state = false;
+                }
 
-            //     self.vk.modifiers(mods_depressed, mods_latched, mods_locked, group);
-            // },
+                self.vk.modifiers(mods_depressed, mods_latched, mods_locked, group);
+            },
 
             KeyEvent::RepeatInfo { rate, delay } => {
                 // Zero rate means disabled repeat
