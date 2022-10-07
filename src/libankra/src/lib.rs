@@ -8,7 +8,6 @@ use std::path::PathBuf;
 
 pub struct AnkraEngine {
     table: TableState,
-    cfg: AnkraConfig,
 }
 
 impl AnkraEngine {
@@ -17,7 +16,7 @@ impl AnkraEngine {
         cfg.id.retain(|c| !c.is_whitespace());
         let table = TableState::new(&cfg.id, &cfg.dir).unwrap();
 
-        AnkraEngine { table, cfg }
+        AnkraEngine { table }
     }
 
     pub fn on_key_press(&mut self, key_code: u16) -> AnkraResponse {
