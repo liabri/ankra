@@ -29,8 +29,6 @@ impl TableState {
     }
 
     pub fn on_key_press(&mut self, key_code: u16) -> AnkraResponse {
-        println!("ENTRY: {}", key_code);
-
         let mut commit = false;
     	match self.config.keycode_to_spec(&key_code).map(|x| x.chars().next()).flatten() {
     		Some('C') => commit = true,
