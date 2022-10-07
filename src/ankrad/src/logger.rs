@@ -25,7 +25,7 @@ pub fn init(log_level: &str) -> Result<()> {
 }
 
 fn init_in(level: LevelFilter) -> Result<()> {
-	let unix_time = format!("{:.0?}.log", SystemTime::now().duration_since(UNIX_EPOCH)?).replace("s", "");
+	let unix_time = format!("{:.0?}.log", SystemTime::now().duration_since(UNIX_EPOCH)?).replace('s', "");
 	Ok(CombinedLogger::init(vec![
         TermLogger::new(level, config(), TerminalMode::Mixed, ColorChoice::Auto),
 		WriteLogger::new(LevelFilter::Debug, Config::default(), create_file(&PathBuf::from("poop").join(&unix_time), true, true).unwrap())
@@ -39,8 +39,8 @@ fn create_file(path: &Path, read: bool, write: bool) -> std::io::Result<File> {
 		.write(write)
 		.open(path);
 
-	if let Err(_) = file {
-	    create_dir_all(&path.parent().expect("couldn't get parent path"))?;
+	if file.is_err() {
+	    create_dir_all(path.parent().expect("couldn't get parent path"))?;
 
 	    file = std::fs::OpenOptions::new()
 	    	.read(read)
@@ -49,5 +49,5 @@ fn create_file(path: &Path, read: bool, write: bool) -> std::io::Result<File> {
 	    	.open(path);
 	}
 
-	Ok(file?)
+	file
 }

@@ -22,15 +22,15 @@ pub struct TableState {
 impl TableState {
     pub fn new(id: &str, path: &Path) -> Result<Self, AnkraError> {
         Ok(Self {
-            table: Table::from_path(id, &path)?,
-            config: TableConfig::from_path(id, &path)?,
+            table: Table::from_path(id, path)?,
+            config: TableConfig::from_path(id, path)?,
             ..Default::default()
         })
     }
 
     pub fn on_key_press(&mut self, key_code: u16) -> AnkraResponse {
         let mut commit = false;
-    	match self.config.keycode_to_spec(&key_code).map(|x| x.chars().next()).flatten() {
+    	match self.config.keycode_to_spec(&key_code).and_then(|x| x.chars().next()) {
     		Some('C') => commit = true,
     		Some('N') => {
                 if self.index+1<(self.relative_entries.len()) {
@@ -46,7 +46,7 @@ impl TableState {
 
             // Escape is only considered a key when in input mode
             Some('E') => {
-                if self.key_sequence.len()>0 {
+                if !self.key_sequence.is_empty() {
                     self.reset();
                     return AnkraResponse::Empty
                 }
@@ -101,11 +101,11 @@ impl TableState {
         }
 
         self.reset();
-        return AnkraResponse::Undefined
+        AnkraResponse::Undefined
     }
 
-    pub fn on_key_release(&mut self, key_code: u16) -> AnkraResponse {
-        return AnkraResponse::Undefined
+    pub fn on_key_release(&mut self, _key_code: u16) -> AnkraResponse {
+        AnkraResponse::Undefined
     }
 
     pub fn reset(&mut self) {
@@ -116,13 +116,13 @@ impl TableState {
     }
 }
 
-#[derive(Default, Debug, PartialEq, Deserialize)]
+#[derive(Default, Debug, Deserialize)]
 pub struct Table {
     pub id: String,
     pub entries: Vec<Entry>
 }
 
-#[derive(Default, Debug, Clone, PartialEq, Deserialize)]
+#[derive(Default, Debug, Clone, Deserialize)]
 pub struct Entry {
     pub character: char,
     pub sequence: String, //maybe try a tiny_string as this is needlessly large
@@ -142,7 +142,7 @@ impl Table {
     }
 }
 
-#[derive(Default, Debug, PartialEq, Deserialize)]
+#[derive(Default, Debug, Deserialize)]
 pub struct TableConfig {
     pub specs: HashMap<KeyCode, Vec<String>>,
     pub keys: HashMap<KeyCode, Vec<char>>,

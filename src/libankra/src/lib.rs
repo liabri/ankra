@@ -32,12 +32,12 @@ impl AnkraEngine {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum AnkraResponse {
     Commit(String),
     Suggest(String),
     Undefined, //Error
-    Empty, //KeyCode found but didnt have anything to return, intentional (like special keys eg. Han key)
+    Empty, //KeyCode found but didnt have anything to return eg. function keys
 }
 
 pub struct AnkraConfig {
