@@ -29,11 +29,22 @@ impl TableState {
     }
 
     pub fn on_key_press(&mut self, key_code: u16) -> AnkraResponse {
+        println!("ENTRY: {}", key_code);
+
         let mut commit = false;
     	match self.config.keycode_to_spec(&key_code).map(|x| x.chars().next()).flatten() {
     		Some('C') => commit = true,
-    		Some('N') => self.index = self.index+1,
-    		Some('P') => self.index = self.index-1,
+    		Some('N') => {
+                if self.index+1<(self.relative_entries.len()) {
+                    self.index += 1;
+                }
+            },
+
+    		Some('P') => {
+                if self.index!=0 { 
+                    self.index -= 1;
+                }
+            }
 
             // Escape is only considered a key when in input mode
             Some('E') => {
@@ -46,7 +57,6 @@ impl TableState {
             Some('B') => { 
                 self.key_sequence.pop();
                 self.relative_entries.clear(); 
-                return AnkraResponse::Undefined
             },
     		
             Some(x @ '0'..='9') => {
