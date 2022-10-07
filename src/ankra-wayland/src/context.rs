@@ -29,7 +29,7 @@ pub struct AnkraContext {
 //     // LALT = 0x8,
 // }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Eq)]
 pub enum InputMethodState {
     Active,
     Inactive,
