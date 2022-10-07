@@ -1,0 +1,19 @@
+[package]
+name = "ankra-wayland"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "ankra_wayland"
+path = "src/lib.rs"
+crate-type = ["rlib"]
+
+[dependencies]
+libankra = { path = "../libankra" }
+wayland-client = "0.29.5"
+wayland-protocols = { version = "0.29.5", features = ["client", "unstable_protocols"] }
+zwp-virtual-keyboard = "0.2.6"
+mio = { version = "0.8.4", features = ["os-ext"] }
+mio-timerfd = { git = "https://github.com/sidit77/mio-timerfd" }
+libc = "0.2.82"
+log = "0.4.17"
