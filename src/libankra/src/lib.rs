@@ -49,8 +49,7 @@ pub struct AnkraConfig {
 impl Default for AnkraConfig {
     fn default() -> Self {
         AnkraConfig {
-        	dir: std::path::PathBuf::from("/home/liabri/.config/ankra"),
-            // dir: xdg::BaseDirectories::with_prefix("benten").unwrap().get_config_home(),
+            dir: xdg::BaseDirectories::with_prefix("ankra").unwrap().get_config_home(),
             id: "layout id was not defined".to_string()
         }
     }

@@ -157,6 +157,7 @@ dependencies = [
  "csv",
  "serde",
  "thiserror",
+ "xdg",
  "zmerald",
 ]
 
