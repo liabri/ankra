@@ -130,7 +130,7 @@ pub struct Entry {
 
 impl Table {
     pub fn from_path(id: &str, base_dir: &Path) -> Result<Self, AnkraError> {
-        let path = base_dir.join(id).with_extension("csv");
+        let path = base_dir.join(id).join("table").with_extension("csv");
         let file = File::open(path)?;
         let reader = BufReader::new(file);
         let entries = csv::Reader::from_reader(reader).deserialize().collect::<Result<Vec<_>, _>>()?;
@@ -150,7 +150,7 @@ pub struct TableConfig {
 
 impl TableConfig {
     pub fn from_path(id: &str, base_dir: &Path) -> Result<Self, AnkraError> {
-        let path = base_dir.join(id).with_extension("zm");
+        let path = base_dir.join(id).join("config").with_extension("zm");
         let file = File::open(path)?;
         let reader = BufReader::new(file);
         Ok(zmerald::from_reader(reader).unwrap())
