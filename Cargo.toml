@@ -1,10 +1,9 @@
 [workspace]
 members = [
-	"src/inkwina-cli",
-    "src/inkwinad",
-    "src/libinkwina",
-    "src/inkwina-wayland",
-    "src/inkwina-ipc"
+	"src/ankra-cli",
+    "src/ankrad",
+    "src/libankra",
+    "src/ankra-wayland",
 ]
 
 [profile.release]

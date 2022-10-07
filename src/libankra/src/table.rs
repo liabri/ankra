@@ -34,6 +34,7 @@ impl TableState {
     		Some("COMMIT") => commit = true,
     		Some("NEXT") => self.index = self.index+1,
     		Some("PREV") => self.index = self.index-1,
+
             Some("BACKSPACE") => { 
                 self.key_sequence.pop();
                 self.relative_entries.clear(); 
@@ -45,13 +46,6 @@ impl TableState {
                 }
             }
     	}
-
-        //change method when key sequence is empty on backspace
-        // if !commit {
-        //    return AnkraResponse::Function(Function::ChangeMethodTo(changemethodto))
-        // }
-
-        println!("key_sequence: {}", self.key_sequence);
 
         // get value from dict.csv
         let result = {
@@ -65,7 +59,6 @@ impl TableState {
                 self.relative_entries.retain(|entry| entry.sequence.starts_with(&self.key_sequence));
             }
 
-            println!("relative entries: {:?}", self.relative_entries);
             if let Some(entry) = self.relative_entries.get(self.index).map(|x| x.to_owned()) {
                 Some(entry.character.to_string())
             } else {
@@ -91,7 +84,7 @@ impl TableState {
         return AnkraResponse::Undefined
     }
 
-    fn reset(&mut self) {
+    pub fn reset(&mut self) {
         self.index = 0;
         self.relative_entries.clear();
         self.key_sequence.clear();

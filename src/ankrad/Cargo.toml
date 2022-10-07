@@ -1,0 +1,11 @@
+[package]
+name = "ankrad"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ankra-wayland = { path = "../ankra-wayland" }
+simplelog = "0.12.0"
+log = "0.4.17"
+xdg = "2.4.1"
+anyhow = "1.0.65"

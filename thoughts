@@ -1,0 +1,8 @@
+What underlying layout will be converted to the dictionary (csv)? I mean ideally there is no intermediary so evdev/uinput -> inkwina, however as this is for wayland we need to just work with what wayland provides us, if I'm not mistaken. 
+
+Wayland provides a keyboard_grab event which supplies the currently used format, modifiers pressed, key pressed, and repeat info. https://docs.rs/wayland-protocols/latest/wayland_protocols/misc/zwp_input_method_v2/client/zwp_input_method_keyboard_grab_v2/enum.Event.html. I suppose I should just base it on libxkbcommon input, for now.
+
+I think the most versatile way (which hopefully doesn't hinder performance) is to supply a keycode -> letter.zmerald to prevent putting keycodes directly into 
+
+
+keycode -> conversion keycode -> table.dict

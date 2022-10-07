@@ -27,6 +27,10 @@ impl AnkraEngine {
     pub fn on_key_release(&mut self, key_code: u16) -> AnkraResponse {    	
     	self.table.on_key_release(key_code)
     }
+
+    pub fn reset(&mut self) {
+    	self.table.reset();
+    }
 }
 
 #[derive(Debug, PartialEq)]
