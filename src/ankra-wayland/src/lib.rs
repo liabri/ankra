@@ -1,66 +1,65 @@
 mod context;
 use context::AnkraContext;
 
-use mio::{unix::SourceFd, Events as MioEvents, Interest, Poll, Token};
-use std::os::unix::io::{AsFd, AsRawFd};
-use rustix::time::{timerfd_create, TimerfdClockId, TimerfdFlags};
+use mio::{ unix::SourceFd, Events as MioEvents, Interest, Poll, Token };
+use std::os::unix::io::{ AsFd, AsRawFd};
+use rustix::time::{ timerfd_create, TimerfdClockId, TimerfdFlags };
 
-use wayland_client::{delegate_noop, Connection, Dispatch, QueueHandle};
+use wayland_client::{ delegate_noop, Connection, Dispatch, QueueHandle };
 use wayland_client::globals::{registry_queue_init, GlobalListContents};
 use wayland_client::protocol::wl_registry::WlRegistry;
 use wayland_client::protocol::wl_seat::WlSeat;
 
+// Add the missing atomic memory imports
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
+
 use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::zwp_virtual_keyboard_v1::ZwpVirtualKeyboardV1;
 use wayland_protocols_misc::zwp_input_method_v2::client::{
-    zwp_input_method_keyboard_grab_v2::{self, ZwpInputMethodKeyboardGrabV2},
+    zwp_input_method_keyboard_grab_v2::{ self, ZwpInputMethodKeyboardGrabV2 },
     zwp_input_method_manager_v2::ZwpInputMethodManagerV2,
-    zwp_input_method_v2::{self, ZwpInputMethodV2},
+    zwp_input_method_v2::{self, ZwpInputMethodV2}
 };
 
 use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1;
 
 pub struct AppState {
-    context: AnkraContext,
+    context: AnkraContext
 }
 
-// Global registry handler
 impl Dispatch<WlRegistry, GlobalListContents> for AppState {
     fn event(_: &mut Self, _: &WlRegistry, _: wayland_client::protocol::wl_registry::Event, _: &GlobalListContents, _: &Connection, _: &QueueHandle<Self>) {}
 }
 
-// Silence the objects we bind but don't need to listen to
 delegate_noop!(AppState: ignore WlSeat);
 delegate_noop!(AppState: ignore ZwpInputMethodManagerV2);
 delegate_noop!(AppState: ignore ZwpVirtualKeyboardManagerV1);
 delegate_noop!(AppState: ignore ZwpVirtualKeyboardV1);
 
-// Route Input Method events to the context
 impl Dispatch<ZwpInputMethodV2, ()> for AppState {
     fn event(state: &mut Self, _: &ZwpInputMethodV2, event: zwp_input_method_v2::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
         state.context.handle_im_ev(event);
     }
 }
 
-// Route Keyboard events to the context
 impl Dispatch<ZwpInputMethodKeyboardGrabV2, ()> for AppState {
     fn event(state: &mut Self, _: &ZwpInputMethodKeyboardGrabV2, event: zwp_input_method_keyboard_grab_v2::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
         state.context.handle_key_ev(event);
     }
 }
 
-// The main orchestrator (keeps your original API intact)
 pub struct State {
     conn: Connection,
     event_queue: wayland_client::EventQueue<AppState>,
     poll: Poll,
-    app_state: AppState,
-    is_active: Arc<AtomicBool>,
+    app_state: AppState
 }
 
 const POLL_WAYLAND: Token = Token(0);
 const POLL_TIMER: Token = Token(1);
 
 impl State {
+    // accept the atomic boolean from your daemon's main.rs
     pub fn new(id: &str, is_active: Arc<AtomicBool>) -> Self {
         let conn = Connection::connect_to_env().expect("Failed to connect to wayland display");
         let (globals, mut event_queue) = registry_queue_init::<AppState>(&conn).unwrap();
@@ -72,7 +71,7 @@ impl State {
 
         let vk = vk_manager.create_virtual_keyboard(&seat, &qh, ());
         let im = im_manager.get_input_method(&seat, &qh, ());
-        let _grab = im.grab_keyboard(&qh, ()); // Must be kept alive in Wayland, but we don't strictly need the handle.
+        let _grab = im.grab_keyboard(&qh, ());
 
         let timer_fd = timerfd_create(TimerfdClockId::Monotonic, TimerfdFlags::CLOEXEC | TimerfdFlags::NONBLOCK).unwrap();
 
@@ -82,10 +81,10 @@ impl State {
         registry.register(&mut SourceFd(&conn.as_fd().as_raw_fd()), POLL_WAYLAND, Interest::READABLE).unwrap();
         registry.register(&mut SourceFd(&timer_fd.as_raw_fd()), POLL_TIMER, Interest::READABLE).unwrap();
 
-        let context = AnkraContext::new(id, vk, im, timer_fd.try_clone().unwrap());
+        // pass the atomic flag directly into the context!
+        let context = AnkraContext::new(id, vk, im, timer_fd.try_clone().unwrap(), is_active);
         let mut app_state = AppState { context };
 
-        // Initial sync to catch up on globals
         event_queue.roundtrip(&mut app_state).unwrap();
         log::info!("Server successfully initialised!");
 
@@ -93,24 +92,12 @@ impl State {
             conn,
             event_queue,
             poll,
-            app_state,
-            is_active
+            app_state
         }
-    }
-
-    fn handle_keyboard_key(&mut self, keycode: u16, state: KeyState) {
-        // read directly from CPU cache. no locking, no system calls, no file IO.
-        if !self.is_active.load(Ordering::Relaxed) {
-            self.forward_raw_key_to_compositor(keycode, state);
-            return;
-        }
-
-        self.process_cangjie_sequence(keycode, state);
     }
 
     pub fn run(&mut self) {
         loop {
-            // Flush outgoing buffer before polling
             self.conn.flush().unwrap();
 
             let mut events = MioEvents::with_capacity(1024);
@@ -129,10 +116,10 @@ impl State {
                             break;
                         }
                     }
+
                     POLL_WAYLAND => {
                         if let Some(guard) = self.conn.prepare_read() {
                             if let Err(e) = guard.read() {
-                                // Use the backend::WaylandError path to access the Io variant
                                 if let wayland_client::backend::WaylandError::Io(io_err) = e {
                                     if io_err.kind() != std::io::ErrorKind::WouldBlock {
                                         break;
@@ -144,6 +131,7 @@ impl State {
                         }
                         self.event_queue.dispatch_pending(&mut self.app_state).unwrap();
                     }
+
                     _ => unreachable!(),
                 }
             }

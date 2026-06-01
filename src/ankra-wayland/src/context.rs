@@ -1,18 +1,21 @@
-use ankra::{AnkraConfig, AnkraEngine, AnkraResponse};
-use std::time::{Duration, Instant};
+use ankra::{ AnkraConfig, AnkraEngine, AnkraResponse };
+use std::time::{ Duration, Instant };
+
+use std::sync::atomic::{ AtomicBool, Ordering };
+use std::sync::Arc;
 
 use rustix::io::read;
-use rustix::time::{timerfd_settime, Itimerspec, TimerfdTimerFlags, Timespec};
-use std::os::unix::io::{AsFd, OwnedFd};
+use rustix::time::{ timerfd_settime, Itimerspec, TimerfdTimerFlags, Timespec };
+use std::os::unix::io::{ AsFd, OwnedFd };
 
 use wayland_client::protocol::wl_keyboard::KeyState;
 use wayland_client::WEnum;
 use wayland_protocols_misc::zwp_input_method_v2::client::{
     zwp_input_method_keyboard_grab_v2::Event as KeyEvent,
-    zwp_input_method_v2::{Event as ImEvent, ZwpInputMethodV2},
+    zwp_input_method_v2::{ Event as ImEvent, ZwpInputMethodV2 }
 };
-use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::zwp_virtual_keyboard_v1::ZwpVirtualKeyboardV1;
 
+use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::zwp_virtual_keyboard_v1::ZwpVirtualKeyboardV1;
 pub struct AnkraContext {
     pub engine: AnkraEngine,
     current_state: InputMethodState,
@@ -23,18 +26,19 @@ pub struct AnkraContext {
     serial: u32,
     timer: OwnedFd,
     repeat_state: Option<(RepeatInfo, PressState)>,
+    is_global_active: Arc<AtomicBool>
 }
 
 #[derive(PartialEq, Eq)]
 pub enum InputMethodState {
     Active,
-    Inactive,
+    Inactive
 }
 
 #[derive(Clone, Copy)]
 struct RepeatInfo {
     rate: i32,
-    delay: i32,
+    delay: i32
 }
 
 #[derive(Clone, Copy)]
@@ -44,7 +48,7 @@ enum PressState {
         pressed_at: Instant,
         is_repeating: bool,
         key: u32,
-        wayland_time: u32,
+        wayland_time: u32
     },
 }
 
@@ -59,7 +63,7 @@ impl PressState {
 }
 
 impl AnkraContext {
-    pub fn new(layout: &str, vk: ZwpVirtualKeyboardV1, im: ZwpInputMethodV2, timer: OwnedFd) -> Self {
+    pub fn new(layout: &str, vk: ZwpVirtualKeyboardV1, im: ZwpInputMethodV2, timer: OwnedFd, is_global_active: Arc<AtomicBool>) -> Self {
         Self {
             engine: AnkraEngine::new(AnkraConfig {
                 id: String::from(layout),
@@ -73,6 +77,7 @@ impl AnkraContext {
             im,
             timer,
             repeat_state: None,
+            is_global_active
         }
     }
 
@@ -88,11 +93,11 @@ impl AnkraContext {
         let it = Itimerspec {
             it_value: Timespec {
                 tv_sec: duration.as_secs() as i64,
-                tv_nsec: duration.subsec_nanos() as i64,
+                tv_nsec: duration.subsec_nanos() as i64
             },
             it_interval: Timespec {
                 tv_sec: interval.as_secs() as i64,
-                tv_nsec: interval.subsec_nanos() as i64,
+                tv_nsec: interval.subsec_nanos() as i64
             },
         };
         let _ = timerfd_settime(&self.timer, TimerfdTimerFlags::empty(), &it);
@@ -106,11 +111,11 @@ impl AnkraContext {
                 log::error!("input method unavailable, is another server already running ?");
                 panic!("unavailable")
             }
+
             ImEvent::Done => {
                 if self.current_state == InputMethodState::Inactive {
                     self.engine.reset();
                     self.disarm_timer();
-                    // Drop the mutable lock, just overwrite the state
                     if let Some((info, _)) = self.repeat_state {
                         self.repeat_state = Some((info, PressState::NotPressing));
                     }
@@ -136,7 +141,11 @@ impl AnkraContext {
             KeyEvent::Key { serial: _, time, key, state } => {
                 let is_pressed = matches!(state, WEnum::Value(KeyState::Pressed));
 
-                if self.current_state == InputMethodState::Active && self.mod_state {
+                // read the boolean instantly from CPU cache
+                let engine_enabled = self.is_global_active.load(Ordering::Relaxed);
+
+                // add `engine_enabled` to the master guard condition!
+                if self.current_state == InputMethodState::Active && self.mod_state && engine_enabled {
                     if is_pressed {
                         match self.engine.on_key_press((key + 8) as u16, 0) {
                             AnkraResponse::Empty => self.im.set_preedit_string(String::new(), -1, -1),
@@ -145,10 +154,12 @@ impl AnkraContext {
                                 self.im.set_preedit_string(String::new(), -1, -1);
                                 return;
                             }
+
                             AnkraResponse::Commit(s) => {
                                 self.im.commit_string(s);
                                 self.im.set_preedit_string(String::new(), -1, -1);
                             }
+
                             AnkraResponse::Suggest(s) => {
                                 let len = s.len();
                                 self.im.set_preedit_string(s, 0, len as i32);
@@ -158,7 +169,6 @@ impl AnkraContext {
                         self.im.commit(self.serial);
                         self.serial += 1;
 
-                        // No ref mut! We read it, then write a fresh state back.
                         if let Some((info, current_press)) = self.repeat_state {
                             if !current_press.is_pressing(key) {
                                 self.arm_timer(Duration::from_millis(info.delay as u64), Duration::ZERO);
@@ -180,6 +190,7 @@ impl AnkraContext {
                         self.vk.key(time, key, 0);
                     }
                 } else {
+                    // IF THE CLI COMMANDED 'OFF', ALL TYPING FALLS DOWN INTO HERE SAFELY
                     let state_val = if is_pressed { 1 } else { 0 };
                     self.vk.key(time, key, state_val);
                 }
