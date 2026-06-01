@@ -1,33 +1,61 @@
 mod context;
 use context::AnkraContext;
 
-use mio::{ unix::SourceFd, Events as MioEvents, Interest, Poll, Token };
-use mio_timerfd::{ ClockId, TimerFd };
+use mio::{unix::SourceFd, Events as MioEvents, Interest, Poll, Token};
+use std::os::unix::io::{AsFd, AsRawFd};
+use rustix::time::{timerfd_create, TimerfdClockId, TimerfdFlags};
+use std::os::unix::io::OwnedFd;
 
-use wayland_client::{ event_enum, Display, Filter, GlobalManager, EventQueue };
+use wayland_client::{delegate_noop, Connection, Dispatch, QueueHandle};
+use wayland_client::globals::{registry_queue_init, GlobalListContents};
+use wayland_client::protocol::wl_registry::WlRegistry;
 use wayland_client::protocol::wl_seat::WlSeat;
 
-use wayland_protocols::misc::zwp_input_method_v2::client::{
-    zwp_input_method_v2::ZwpInputMethodV2,
+use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::zwp_virtual_keyboard_v1::ZwpVirtualKeyboardV1;
+use wayland_protocols_misc::zwp_input_method_v2::client::{
+    zwp_input_method_keyboard_grab_v2::{self, ZwpInputMethodKeyboardGrabV2},
     zwp_input_method_manager_v2::ZwpInputMethodManagerV2,
-    zwp_input_method_keyboard_grab_v2::ZwpInputMethodKeyboardGrabV2,
+    zwp_input_method_v2::{self, ZwpInputMethodV2},
 };
 
-use zwp_virtual_keyboard::virtual_keyboard_unstable_v1::{
-    zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1
-};
+use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1;
 
-event_enum! {
-    Events |
-    Key => ZwpInputMethodKeyboardGrabV2,
-    Im => ZwpInputMethodV2
+pub struct AppState {
+    context: AnkraContext,
 }
 
+// Global registry handler
+impl Dispatch<WlRegistry, GlobalListContents> for AppState {
+    fn event(_: &mut Self, _: &WlRegistry, _: wayland_client::protocol::wl_registry::Event, _: &GlobalListContents, _: &Connection, _: &QueueHandle<Self>) {}
+}
+
+// Silence the objects we bind but don't need to listen to
+delegate_noop!(AppState: ignore WlSeat);
+delegate_noop!(AppState: ignore ZwpInputMethodManagerV2);
+delegate_noop!(AppState: ignore ZwpVirtualKeyboardManagerV1);
+delegate_noop!(AppState: ignore ZwpVirtualKeyboardV1);
+
+// Route Input Method events to the context
+impl Dispatch<ZwpInputMethodV2, ()> for AppState {
+    fn event(state: &mut Self, _: &ZwpInputMethodV2, event: zwp_input_method_v2::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        state.context.handle_im_ev(event);
+    }
+}
+
+// Route Keyboard events to the context
+impl Dispatch<ZwpInputMethodKeyboardGrabV2, ()> for AppState {
+    fn event(state: &mut Self, _: &ZwpInputMethodKeyboardGrabV2, event: zwp_input_method_keyboard_grab_v2::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        state.context.handle_key_ev(event);
+    }
+}
+
+// The main orchestrator (keeps your original API intact)
 pub struct State {
-    context: AnkraContext,
-    display: Display,
-    event_queue: EventQueue,
-    poll: Poll
+    conn: Connection,
+    event_queue: wayland_client::EventQueue<AppState>,
+    poll: Poll,
+    app_state: AppState,
+    timer_fd: OwnedFd,
 }
 
 const POLL_WAYLAND: Token = Token(0);
@@ -35,117 +63,81 @@ const POLL_TIMER: Token = Token(1);
 
 impl State {
     pub fn new(id: &str) -> Self {
-        let display = Display::connect_to_env().map_err(|e| log::error!("Failed to connect to wayland display: {}", e)).unwrap();
-        let mut event_queue = display.create_event_queue();
-        let attached_display = display.attach(event_queue.token());
-        let globals = GlobalManager::new(&attached_display);
+        let conn = Connection::connect_to_env().expect("Failed to connect to wayland display");
+        let (globals, mut event_queue) = registry_queue_init::<AppState>(&conn).unwrap();
+        let qh = event_queue.handle();
 
-        event_queue.sync_roundtrip(&mut (), |_, _, _| ()).unwrap();
+        let seat: WlSeat = globals.bind(&qh, 1..=8, ()).expect("Failed to load Seat");
+        let im_manager: ZwpInputMethodManagerV2 = globals.bind(&qh, 1..=1, ()).expect("Failed to load InputManager");
+        let vk_manager: ZwpVirtualKeyboardManagerV1 = globals.bind(&qh, 1..=1, ()).expect("Failed to load VirtualKeyboardManager");
 
-        let seat = globals.instantiate_exact::<WlSeat>(1).expect("Failed to load Seat");
-        let im_manager = globals.instantiate_exact::<ZwpInputMethodManagerV2>(1).expect("Failed to load InputManager");
-        let vk_manager = globals.instantiate_exact::<ZwpVirtualKeyboardManagerV1>(1).expect("Failed to load VirtualKeyboardManager");
+        let vk = vk_manager.create_virtual_keyboard(&seat, &qh, ());
+        let im = im_manager.get_input_method(&seat, &qh, ());
+        let _grab = im.grab_keyboard(&qh, ()); // Must be kept alive in Wayland, but we don't strictly need the handle.
 
-        let filter = Filter::new(|ev, _filter, mut data| {
-            let context = AnkraContext::new_data(&mut data);
-            match ev {
-                Events::Key { event, .. } => {
-                    context.handle_key_ev(event);
-                },
+        let timer_fd = timerfd_create(TimerfdClockId::Monotonic, TimerfdFlags::CLOEXEC | TimerfdFlags::NONBLOCK).unwrap();
 
-                Events::Im { event, .. } => {
-                    context.handle_im_ev(event);
-                }
-            }
-        });
-
-        let vk = vk_manager.create_virtual_keyboard(&seat);
-        let im = im_manager.get_input_method(&seat);
-        let grab = im.grab_keyboard();
-        grab.assign(filter.clone());
-        im.assign(filter);
-
-        let mut timer = TimerFd::new(ClockId::Monotonic).expect("Initialize timer");
         let poll = Poll::new().expect("Initialize epoll()");
         let registry = poll.registry();
 
-        registry.register(
-            &mut SourceFd(&display.get_connection_fd()),
-            POLL_WAYLAND,
-            Interest::READABLE | Interest::WRITABLE,
-        ).expect("Register wayland socket to the epoll()");
+        registry.register(&mut SourceFd(&conn.as_fd().as_raw_fd()), POLL_WAYLAND, Interest::READABLE).unwrap();
+        registry.register(&mut SourceFd(&timer_fd.as_raw_fd()), POLL_TIMER, Interest::READABLE).unwrap();
 
-        // Required for hold event of engine values
-        registry.register(&mut timer, POLL_TIMER, Interest::READABLE)
-            .expect("Register timer to the epoll()");
+        let context = AnkraContext::new(id, vk, im, timer_fd.try_clone().unwrap());
+        let mut app_state = AppState { context };
 
-        // Initialise context
-        let mut context = AnkraContext::new(id, vk, im, timer);
-        event_queue.sync_roundtrip(&mut context, |_, _, _| ()).unwrap();
-        log::info!("Server successfully initialised !");
+        // Initial sync to catch up on globals
+        event_queue.roundtrip(&mut app_state).unwrap();
+        log::info!("Server successfully initialised!");
 
         Self {
-            display,
+            conn,
             event_queue,
-            context,
-            poll
+            poll,
+            app_state,
+            timer_fd,
         }
     }
 
     pub fn run(&mut self) {
-        let stop_reason: Result<_, std::io::Error> = 'main: loop {
-            use std::io::ErrorKind;
-            let mut events = MioEvents::with_capacity(1024);
+        loop {
+            // Flush outgoing buffer before polling
+            self.conn.flush().unwrap();
 
-            // Sleep until next event
+            let mut events = MioEvents::with_capacity(1024);
             if let Err(e) = self.poll.poll(&mut events, None) {
-                // Should retry on EINTR
-                if e.kind() == ErrorKind::Interrupted {
+                if e.kind() == std::io::ErrorKind::Interrupted {
                     continue;
                 }
-
-                break Err(e);
+                break;
             }
 
             for event in &events {
                 match event.token() {
                     POLL_TIMER => {
-                        if let Err(e) = self.context.handle_timer_ev() {
-                            break 'main Err(e);
+                        if let Err(e) = self.app_state.context.handle_timer_ev() {
+                            log::error!("Timer error: {}", e);
+                            break;
                         }
                     }
-
-                    POLL_WAYLAND => {},
+                    POLL_WAYLAND => {
+                        if let Some(guard) = self.conn.prepare_read() {
+                            if let Err(e) = guard.read() {
+                                // Use the backend::WaylandError path to access the Io variant
+                                if let wayland_client::backend::WaylandError::Io(io_err) = e {
+                                    if io_err.kind() != std::io::ErrorKind::WouldBlock {
+                                        break;
+                                    }
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+                        self.event_queue.dispatch_pending(&mut self.app_state).unwrap();
+                    }
                     _ => unreachable!(),
                 }
             }
-
-            // Perform read() only when it's ready, returns None when there're already pending events
-            if let Some(guard) = self.event_queue.prepare_read() {
-                if let Err(e) = guard.read_events() {
-                    // ErrorKind::WouldBlock here means there's no new messages to read
-                    if e.kind() != ErrorKind::WouldBlock {
-                        break Err(e);
-                    }
-                }
-            }
-
-            if let Err(e) = self.event_queue.dispatch_pending(&mut self.context, |_, _, _| {}) {
-                break Err(e);
-            }
-
-            // Flush pending writes
-            if let Err(e) = self.display.flush() {
-                // ErrorKind::WouldBlock here means there're so many to write, retry later
-                if e.kind() != ErrorKind::WouldBlock {
-                    break Err(e);
-                }
-            }
-        };
-
-        match stop_reason {
-            Ok(()) => log::info!("Server closed gracefully"),
-            Err(e) => log::error!("Server aborted: {}", e),
         }
     }
 }

@@ -1,7 +1,7 @@
 {
   description = "Rust project Ankra";
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-23.05";
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
 
   outputs = { self, nixpkgs }: let
     system = "x86_64-linux";
@@ -35,8 +35,8 @@
       shellHook = ''
         export CARGO_HOME=$PWD/.cargo
         export RUSTUP_HOME=$PWD/.rustup
-        rustup default 1.72.0
-        echo "Rust dev shell ready (1.72.0)"
+        rustup default 1.88.0
+        echo "Rust dev shell ready (1.88.0)"
       '';
     };
   };

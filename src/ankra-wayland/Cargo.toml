@@ -10,10 +10,10 @@ crate-type = ["rlib"]
 
 [dependencies]
 libankra = { path = "../libankra" }
-wayland-client = "0.29.5"
-wayland-protocols = { version = "0.29.5", features = ["client", "unstable_protocols"] }
-zwp-virtual-keyboard = "0.2.6"
-mio = { version = "0.8.4", features = ["os-ext"] }
-mio-timerfd = "0.2.0"
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client"] }
+wayland-protocols-misc = { version = "0.3", features = ["client"] }
+mio = { version = "1.0", features = ["os-poll", "os-ext"] }
+rustix = { version = "0.38", features = ["time", "fs"] }
 libc = "0.2.82"
 log = "0.4.17"
