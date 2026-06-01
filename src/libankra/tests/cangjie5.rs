@@ -98,23 +98,6 @@ fn cangjie_backspace_key() {
 }
 
 #[test]
-fn cangjie_on_no_result() {
-    test_input(&[
-        (24, AnkraResponse::Suggest(String::from("手"))),
-        (24, AnkraResponse::Suggest(String::from("抙"))),
-        (24, AnkraResponse::Suggest(String::from("掱"))),
-
-        (24, AnkraResponse::Empty),
-
-        //on fail restart sequence
-        (24, AnkraResponse::Suggest(String::from("手"))),
-        (24, AnkraResponse::Suggest(String::from("抙"))),
-        (24, AnkraResponse::Suggest(String::from("掱"))),
-        (65, AnkraResponse::Commit(String::from("掱"))),
-    ])
-}
-
-#[test]
 fn cangjie_escape_key() {
     test_input(&[
         (24, AnkraResponse::Suggest(String::from("手"))),
@@ -156,5 +139,71 @@ fn cangjie_boundary_guards() {
         (23, 0, AnkraResponse::Suggest(String::from("掱"))),
         (23, 0, AnkraResponse::Suggest(String::from("掱"))),
         (65, 0, AnkraResponse::Commit(String::from("掱"))),
+    ])
+}
+
+#[test]
+fn cangjie_alternative_arrow_navigation() {
+    test_input_with_level(&[
+        (38, 0, AnkraResponse::Suggest(String::from("日"))),
+        // 114 = Right Arrow (NEXT at Level 0)
+        (114, 0, AnkraResponse::Suggest(String::from("曰"))),
+        // 113 = Left Arrow (PREV at Level 0)
+        (113, 0, AnkraResponse::Suggest(String::from("日"))),
+        (65, 0, AnkraResponse::Commit(String::from("日"))),
+    ])
+}
+
+#[test]
+fn cangjie_empty_buffer_resilience() {
+    test_input(&[
+        // Tapping Backspace (22) or Escape (9) on a blank slate
+        // should safely yield Undefined without crashing.
+        (22, AnkraResponse::Undefined),
+        (9, AnkraResponse::Undefined),
+        // Ensure engine still works perfectly immediately after
+        (38, AnkraResponse::Suggest(String::from("日"))),
+    ])
+}
+
+#[test]
+fn cangjie_unmapped_key_interception() {
+    test_input(&[
+        (24, AnkraResponse::Suggest(String::from("手"))),
+        // 67 = F1 key (completely unmapped in config.zm)
+        // The engine should ignore it and preserve the current preedit suggestion.
+        (67, AnkraResponse::Suggest(String::from("手"))),
+        (65, AnkraResponse::Commit(String::from("手"))),
+    ])
+}
+
+#[test]
+fn cangjie_on_no_result() {
+    test_input(&[
+        (24, AnkraResponse::Suggest(String::from("手"))), // q
+        (24, AnkraResponse::Suggest(String::from("抙"))), // qq
+        (24, AnkraResponse::Suggest(String::from("掱"))), // qqq
+
+        // It successfully preserves the typing buffer and suggests the raw string.
+        (24, AnkraResponse::Suggest(String::from("qqqq"))),
+
+        // Striking the Spacebar (65) commits that raw text fallback cleanly
+        (65, AnkraResponse::Commit(String::from("qqqq"))),
+    ])
+}
+
+#[test]
+fn cangjie_raw_enter_escape_hatch() {
+    test_input(&[
+        (24, AnkraResponse::Suggest(String::from("手"))), // q
+        // even though a Chinese match exists ("手"), hitting Enter (36)
+        // must explicitly bypass it and print the raw string "q" instead.
+        (36, AnkraResponse::Commit(String::from("q"))),
+
+        // ensure the engine completely reset and is ready for fresh input
+        (46, AnkraResponse::Suggest(String::from("中"))), // l
+        (32, AnkraResponse::Suggest(String::from("𬡂"))), // o
+        (46, AnkraResponse::Suggest(String::from("𮕶"))), // l
+        (36, AnkraResponse::Commit(String::from("lol"))),
     ])
 }

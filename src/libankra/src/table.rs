@@ -30,6 +30,7 @@ impl TableState {
 
     pub fn on_key_press(&mut self, key_code: u16, level: usize) -> AnkraResponse {
         let mut commit = false;
+        let mut raw_commit = false; // flag to track explicit Enter bypass
         let mut is_control = false; // add a flag to track control keys
 
         match self.config.keycode_to_spec(&key_code, level).and_then(|x| x.chars().next()) {
@@ -37,32 +38,43 @@ impl TableState {
                 commit = true;
                 is_control = true;
             }
+
             Some('N') => {
                 is_control = true;
                 if self.index + 1 < self.relative_entries.len() {
                     self.index += 1;
                 }
             }
+
             Some('P') => {
                 is_control = true;
                 if self.index != 0 {
                     self.index -= 1;
                 }
             }
+
             Some('E') => {
                 if !self.key_sequence.is_empty() {
                     self.reset();
                     return AnkraResponse::Empty;
                 }
             }
+
+            Some('R') => {
+                raw_commit = true;
+                is_control = true;
+            }
+
             Some('B') => {
                 self.key_sequence.pop();
                 self.relative_entries.clear();
             }
+
             Some(x @ '0'..='9') => {
                 is_control = true;
                 self.index = (x as usize) - 49;
             }
+
             _ => {
                 if let Some(c) = self.config.keycode_to_char(&key_code, level) {
                     self.key_sequence.push(*c);
@@ -83,15 +95,16 @@ impl TableState {
         }
 
         // Resolve the string out of the filtered entries
-        let value = if let Some(entry) = self.relative_entries.get(self.index) {
+        let value = if raw_commit {
+            self.key_sequence.clone()
+        } else if let Some(entry) = self.relative_entries.get(self.index) {
             entry.character.to_string()
         } else {
-            self.reset();
-            return AnkraResponse::Empty;
+            self.key_sequence.clone()
         };
 
         if !self.key_sequence.is_empty() {
-            if commit {
+            if commit || raw_commit {
                 self.reset();
                 return AnkraResponse::Commit(value);
             } else {
