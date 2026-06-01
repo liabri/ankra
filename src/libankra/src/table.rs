@@ -117,11 +117,22 @@ impl TableState {
             self.index = 0; // reset active item index on a fresh character input entry
             self.relative_indices.clear(); // clear cache to rebuild for new sequence length
 
+            let mut exact_matches = Vec::new();
+            let mut prefix_suggestions = Vec::new();
+
             for (i, entry) in self.table.entries.iter().enumerate() {
-                if entry.sequence.starts_with(&self.key_sequence) {
-                    self.relative_indices.push(i);
+                if *entry.sequence == self.key_sequence {
+                    // perfect sequence match (e.g., typed 'n' for '弓')
+                    exact_matches.push(i);
+                } else if entry.sequence.starts_with(&self.key_sequence) {
+                    // predictive match (e.g., typed 'n' for 'nrcku' / '阿爸')
+                    prefix_suggestions.push(i);
                 }
             }
+
+            // combine them: Exact matches ALWAYS own the front of the candidate list!
+            self.relative_indices = exact_matches;
+            self.relative_indices.extend(prefix_suggestions);
         }
 
         // resolve the string out of the filtered entries and apply dynamic weight adjustments
