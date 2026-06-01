@@ -213,6 +213,7 @@ name = "libankra"
 version = "0.1.0"
 dependencies = [
  "csv",
+ "log",
  "serde",
  "thiserror",
  "xdg",

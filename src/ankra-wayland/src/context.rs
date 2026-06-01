@@ -60,13 +60,20 @@ impl AnkraContext {
     pub fn handle_im_ev(&mut self, ev: ImEvent) {
         match ev {
             ImEvent::Activate => self.im_active = true,
-            ImEvent::Deactivate => self.im_active = false,
             ImEvent::Unavailable => panic!("Input method unavailable"),
             ImEvent::Done => {
                 self.im_done_serial += 1;
                 if !self.im_active {
                     self.engine.reset();
                     self.forwarded_presses = [false; 512];
+                }
+            }
+            ImEvent::Deactivate => {
+                self.im_active = false;
+
+                // user clicked away. if uncommitted weight mutations > 50, safely write to SSD.
+                if self.engine.uncommitted_weight_mutations() >= 50 {
+                    self.engine.flush();
                 }
             }
             _ => {}
@@ -124,6 +131,11 @@ impl AnkraContext {
                 self.vk.modifiers(mods_depressed, mods_latched, mods_locked, group);
             }
             _ => {}
+        }
+
+        // if user has been typing without ever leaving the window, force a background save of uncomitted weight mutations every 500 characters.
+        if self.engine.uncommitted_weight_mutations() >= 500 {
+                self.engine.flush();
         }
     }
 }

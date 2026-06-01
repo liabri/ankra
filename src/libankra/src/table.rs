@@ -21,17 +21,17 @@
 //! ### 4. Viewport Memory Management
 //! State transformations divide strictly to minimize processing overhead:
 //! * **Structural Shifts (Keystrokes):** Triggers a full cache eviction, forcing
-//!   a dynamic re-population of `relative_entries` and resetting the viewport pointer (`index = 0`).
+//!   a dynamic re-population of `relative_indices` and resetting the viewport pointer (`index = 0`).
 //! * **Navigation Shifts (Page/Digit Jumps):** Operates entirely as a stateless mutation
 //!   of the viewport pointer across the pre-filtered array, shielding layout navigation
 //!   from allocation or database search overhead.
 
-use serde::Deserialize;
+use serde::{ Deserialize, Serialize };
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{ Path, PathBuf };
 use crate::{ AnkraError, AnkraResponse };
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{ BufReader, BufWriter };
 
 type KeyCode = u16;
 
@@ -41,10 +41,10 @@ pub struct TableState {
     pub config: TableConfig,
     pub key_sequence: String,
     pub index: usize,
-	pub relative_entries: Vec<Entry>,
+    pub relative_indices: Vec<usize>,
     pub previous_character: String,
-    pub weights: HashMap<char, u32>,
-    pub weights_path: std::path::PathBuf,
+    pub uncommitted_weight_mutations: u32,
+    pub layout_dir: PathBuf
 }
 
 // feature: copy previous character key bind, kinda like a repition mark, will need a var "previous character" buf in TableMethod
@@ -53,6 +53,7 @@ impl TableState {
         Ok(Self {
             table: Table::from_path(id, path)?,
             config: TableConfig::from_path(id, path)?,
+            layout_dir: path.join(id),
             ..Default::default()
         })
     }
@@ -70,7 +71,7 @@ impl TableState {
 
             Some('N') => {
                 is_control = true;
-                if self.index + 1 < self.relative_entries.len() {
+                if self.index + 1 < self.relative_indices.len() {
                     self.index += 1;
                 }
             }
@@ -96,7 +97,7 @@ impl TableState {
 
             Some('B') => {
                 self.key_sequence.pop();
-                self.relative_entries.clear();
+                self.relative_indices.clear();
             }
 
             Some(x @ '0'..='9') => {
@@ -114,20 +115,39 @@ impl TableState {
         // only rebuild relative entries if this wasn't a static control action
         if !is_control {
             self.index = 0; // reset active item index on a fresh character input entry
-            self.relative_entries.clear(); // clear cache to rebuild for new sequence length
+            self.relative_indices.clear(); // clear cache to rebuild for new sequence length
 
-            for entry in &self.table.entries {
+            for (i, entry) in self.table.entries.iter().enumerate() {
                 if entry.sequence.starts_with(&self.key_sequence) {
-                    self.relative_entries.push(entry.clone());
+                    self.relative_indices.push(i);
                 }
             }
         }
 
-        // resolve the string out of the filtered entries
+        // resolve the string out of the filtered entries and apply dynamic weight adjustments
         let value = if raw_commit {
             self.key_sequence.clone()
-        } else if let Some(entry) = self.relative_entries.get(self.index) {
-            entry.character.to_string()
+        } else if let Some(&main_idx) = self.relative_indices.get(self.index) {
+            // weight mutation & bubble sorted in memory
+            if commit {
+                self.uncommitted_weight_mutations += 1;
+
+                // increment the weight directly in the main array
+                self.table.entries[main_idx].weight = self.table.entries[main_idx].weight.saturating_add(1);
+
+                // bubble the entry up the array if it is now heavier than the item above it
+                let mut curr = main_idx;
+                while curr > 0 && self.table.entries[curr].weight > self.table.entries[curr - 1].weight {
+                    self.table.entries.swap(curr, curr - 1);
+                    curr -= 1;
+                }
+
+                // return the string from its new, bubbled-up location!
+                self.table.entries[curr].character.to_string()
+            } else {
+                // just suggesting, don't mutate weights yet
+                self.table.entries[main_idx].character.to_string()
+            }
         } else {
             self.key_sequence.clone()
         };
@@ -151,9 +171,41 @@ impl TableState {
 
     pub fn reset(&mut self) {
         self.index = 0;
-        self.relative_entries.clear();
+        self.relative_indices.clear();
         self.key_sequence.clear();
         self.previous_character.clear();
+    }
+
+    pub fn flush_to_disk(&mut self) -> Result<(), AnkraError> {
+        if self.uncommitted_weight_mutations == 0 {
+            return Ok(());
+        }
+
+        let table_path = self.layout_dir.join("chars.csv");
+        let phrases_path = self.layout_dir.join("phrases.csv");
+
+        // open raw files and wrap them in memory buffers to protect SSD
+        let table_file = File::create(table_path)?;
+        let phrases_file = File::create(phrases_path)?;
+
+        let mut table_wtr = csv::Writer::from_writer(BufWriter::new(table_file));
+        let mut phrases_wtr = csv::Writer::from_writer(BufWriter::new(phrases_file));
+
+        for entry in &self.table.entries {
+            // O(1), if the 2nd character does not exist, it's a single char.
+            if entry.character.chars().nth(1).is_none() {
+                table_wtr.serialize(entry)?;
+            } else {
+                phrases_wtr.serialize(entry)?;
+            }
+        }
+
+        table_wtr.flush()?;
+        phrases_wtr.flush()?;
+
+        self.uncommitted_weight_mutations = 0;
+
+        Ok(())
     }
 }
 
@@ -162,22 +214,45 @@ pub struct Table {
     pub entries: Vec<Entry>
 }
 
-#[derive(Default, Debug, Clone, Deserialize)]
+#[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub struct Entry {
-    pub character: char,
-    pub sequence: String, // maybe try a tiny_string as this is needlessly large
+    pub character: Box<str>,
+    pub sequence: Box<str>,
+    #[serde(default)]
+    pub weight: u32,
 }
 
 impl Table {
     pub fn from_path(id: &str, base_dir: &Path) -> Result<Self, AnkraError> {
-        let path = base_dir.join(id).join("table").with_extension("csv");
-        let file = File::open(path)?;
-        let reader = BufReader::new(file);
-        let entries = csv::Reader::from_reader(reader).deserialize().collect::<Result<Vec<_>, _>>()?;
+        let layout_dir = base_dir.join(id);
+        let mut entries = Vec::new();
 
-        Ok(Self {
-            entries,
-        })
+        let mut load_csv = |file_name: &str| -> Result<(), AnkraError> {
+            let path = layout_dir.join(file_name);
+            if path.exists() {
+                let file = File::open(path)?;
+                let reader = BufReader::new(file);
+                let mut csv_reader = csv::Reader::from_reader(reader);
+
+                for result in csv_reader.deserialize::<Entry>() {
+                    if let Ok(entry) = result {
+                        entries.push(entry);
+                    }
+                }
+            }
+            Ok(())
+        };
+
+        load_csv("chars.csv")?;
+        load_csv("phrases.csv")?;
+
+        // pre-ort descending by weight. if weights are tied, sort ascending by sequence length
+        entries.sort_by(|a, b| {
+            b.weight.cmp(&a.weight)
+                .then_with(|| a.sequence.len().cmp(&b.sequence.len()))
+        });
+
+        Ok(Self { entries })
     }
 }
 
@@ -201,5 +276,105 @@ impl TableConfig {
 
     pub fn keycode_to_spec(&self, keycode: &KeyCode, level: usize) -> Option<&str> {
         self.specs.get(keycode)?.get(level).map(|x| &**x)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env::temp_dir;
+    use std::fs;
+
+    /// Helper function to build an isolated engine state in RAM
+    fn mock_state() -> TableState {
+        let mut config = TableConfig::default();
+
+        // mock the 'a' key (let's say KeyCode 30)
+        config.keys.insert(30, vec!['a']);
+        config.keys.insert(31, vec!['b']);
+
+        // Mock the Commit key ('C') (let's say KeyCode 28, usually Enter)
+        config.specs.insert(28, vec!["C".to_string()]);
+
+        let entries = vec![
+            Entry { character: Box::from("啊"), sequence: Box::from("a"), weight: 0 },
+            Entry { character: Box::from("阿"), sequence: Box::from("a"), weight: 0 },
+            Entry { character: Box::from("哎"), sequence: Box::from("a"), weight: 5 },
+        ];
+
+        let mut state = TableState::default();
+        state.config = config;
+        state.table = Table { entries };
+        // Pre-sort just like Table::from_path does
+        state.table.entries.sort_by(|a, b| b.weight.cmp(&a.weight));
+
+        state
+    }
+
+    #[test]
+    fn test_memory_mutation_and_bubble_sort() {
+        let mut state = mock_state();
+
+        // Ensure "哎" is at index 0 because it starts with weight 5
+        assert_eq!(&*state.table.entries[0].character, "哎");
+
+        // Type 'a' (KeyCode 30)
+        let res = state.on_key_press(30, 0);
+        assert_eq!(res, AnkraResponse::Suggest("哎".to_string()));
+
+        // Let's navigate down the candidate list using index
+        state.index = 1; // Pointing to "啊" (Weight 0)
+
+        // Commit the selection (KeyCode 28)
+        let commit_res = state.on_key_press(28, 0);
+        assert_eq!(commit_res, AnkraResponse::Commit("啊".to_string()));
+
+        // ASSERTIONS
+        // 1. The weight should have increased
+        assert_eq!(state.uncommitted_weight_mutations, 1);
+
+        // 2. "啊" should have bubbled up above "阿" but stay below "哎"
+        assert_eq!(&*state.table.entries[0].character, "哎"); // Weight 5
+        assert_eq!(&*state.table.entries[1].character, "啊"); // Weight 1
+        assert_eq!(&*state.table.entries[2].character, "阿"); // Weight 0
+    }
+
+    #[test]
+    fn test_split_flush_to_disk() {
+        let temp_layout_dir = temp_dir().join("ankra_test_flush_dir");
+        fs::create_dir_all(&temp_layout_dir).unwrap();
+
+        let mut state = TableState::default();
+        state.layout_dir = temp_layout_dir.clone();
+        state.uncommitted_weight_mutations = 1; // Force the flush to trigger
+
+        // Mix single chars and multi-char phrases together
+        state.table.entries = vec![
+            Entry { character: Box::from("的"), sequence: Box::from("d"), weight: 10 },
+            Entry { character: Box::from("我的"), sequence: Box::from("wd"), weight: 5 },
+        ];
+
+        // Execute the flush
+        let flush_res = state.flush_to_disk();
+        assert!(flush_res.is_ok());
+
+        // Read the isolated files back from the temp directory
+        let chars_content = fs::read_to_string(temp_layout_dir.join("chars.csv")).unwrap();
+        let phrases_content = fs::read_to_string(temp_layout_dir.join("phrases.csv")).unwrap();
+
+        // ASSERTIONS
+        // "的" should exclusively be in chars.csv
+        assert!(chars_content.contains("的"));
+        assert!(!chars_content.contains("我的"));
+
+        // "我的" should exclusively be in phrases.csv
+        assert!(phrases_content.contains("我的"));
+        assert!(!phrases_content.contains("的,d,10")); // Exact match safety
+
+        // The flush should have reset the tracker
+        assert_eq!(state.uncommitted_weight_mutations, 0);
+
+        // Teardown the mock directory
+        fs::remove_dir_all(temp_layout_dir).unwrap();
     }
 }

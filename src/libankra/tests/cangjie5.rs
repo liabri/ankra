@@ -207,3 +207,39 @@ fn cangjie_raw_enter_escape_hatch() {
         (36, AnkraResponse::Commit(String::from("lol"))),
     ])
 }
+
+#[test]
+fn cangjie_dynamic_weight_sorting() {
+    test_input_with_level(&[
+        // --- FIRST PASS ---
+        // 1. Press 'q' (24). Defaults to candidate 0 ("手")
+        (24, 0, AnkraResponse::Suggest(String::from("手"))),
+
+        // 2. Press 'Tab' (23) to navigate to candidate 1 ("抙")
+        (23, 0, AnkraResponse::Suggest(String::from("抙"))),
+
+        // 3. Press Spacebar (65) to commit "抙".
+        // ENGINE MAGIC: "抙" gets +1 weight and bubbles to index 0!
+        (65, 0, AnkraResponse::Commit(String::from("抙"))),
+
+        // --- SECOND PASS ---
+        // 4. Press 'q' (24) again. Because of the memory mutation,
+        // "抙" is now naturally sitting at index 0!
+        (24, 0, AnkraResponse::Suggest(String::from("抙"))),
+
+        // 5. Press 'Tab' (23) to navigate to candidate 1.
+        // "手" was pushed down, so it is now at index 1.
+        (23, 0, AnkraResponse::Suggest(String::from("手"))),
+
+        // 6. Commit "手"
+        (65, 0, AnkraResponse::Commit(String::from("手"))),
+
+        // --- THIRD PASS ---
+        (24, 0, AnkraResponse::Suggest(String::from("抙"))),
+        (23, 0, AnkraResponse::Suggest(String::from("手"))),
+        (65, 0, AnkraResponse::Commit(String::from("手"))),
+
+        // --- FOURTH PASS ---
+        (24, 0, AnkraResponse::Suggest(String::from("手"))),
+    ])
+}
