@@ -3,17 +3,16 @@ use ankra::{ AnkraEngine, AnkraResponse };
 #[track_caller]
 pub fn test_input_impl(mut engine: AnkraEngine, keys: &[(u16, AnkraResponse)]) {
     for (key, response) in keys.iter() {
-        let rep = engine.on_key_press(key.to_owned());
+        let rep = engine.on_key_press(key.to_owned(), 0); // Default to level 0
         eprintln!("Key: {:?}, Rep: {:?}", key, rep);
         assert_eq!(&rep, response);
     }
 }
 
-
 #[track_caller]
 pub fn test_input_with_level_impl(mut engine: AnkraEngine, keys: &[(u16, u16, AnkraResponse)]) {
     for (key, level, response) in keys.iter() {
-        let rep = engine.on_key_press(key.to_owned());
+        let rep = engine.on_key_press(key.to_owned(), *level as usize); // Pass the actual level!
         eprintln!("Key: {:?}, Level: {:?}, Rep: {:?}", key, level, rep);
         assert_eq!(&rep, response);
     }
@@ -28,7 +27,7 @@ macro_rules! define_layout_test {
         #[allow(dead_code)]
         #[track_caller]
         fn test_input(keys: &[(u16, AnkraResponse)]) {
-            let context = AnkraEngine::new(AnkraConfig { 
+            let context = AnkraEngine::new(AnkraConfig {
                 id: $layout.to_string(),
                 ..AnkraConfig::default()
             });
@@ -36,7 +35,7 @@ macro_rules! define_layout_test {
         }
 
         fn test_input_with_level(keys: &[(u16, u16, AnkraResponse)]) {
-            let context = AnkraEngine::new(AnkraConfig { 
+            let context = AnkraEngine::new(AnkraConfig {
                 id: $layout.to_string(),
                 ..AnkraConfig::default()
             });

@@ -138,7 +138,7 @@ impl AnkraContext {
 
                 if self.current_state == InputMethodState::Active && self.mod_state {
                     if is_pressed {
-                        match self.engine.on_key_press((key + 8) as u16) {
+                        match self.engine.on_key_press((key + 8) as u16, 0) {
                             AnkraResponse::Empty => self.im.set_preedit_string(String::new(), -1, -1),
                             AnkraResponse::Undefined => {
                                 self.vk.key(time, key, 1);

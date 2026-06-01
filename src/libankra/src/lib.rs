@@ -19,12 +19,12 @@ impl AnkraEngine {
         AnkraEngine { table }
     }
 
-    pub fn on_key_press(&mut self, key_code: u16) -> AnkraResponse {
-    	self.table.on_key_press(key_code)
+    pub fn on_key_press(&mut self, key_code: u16, level: usize) -> AnkraResponse {
+       	self.table.on_key_press(key_code, level)
     }
 
-    pub fn on_key_release(&mut self, key_code: u16) -> AnkraResponse {    	
-    	self.table.on_key_release(key_code)
+    pub fn on_key_release(&mut self, key_code: u16, level: usize) -> AnkraResponse {
+       	self.table.on_key_release(key_code, level)
     }
 
     pub fn reset(&mut self) {
@@ -32,7 +32,7 @@ impl AnkraEngine {
     }
 }
 
-#[derive(Debug)]
+#[derive(PartialEq, Debug)]
 pub enum AnkraResponse {
     Commit(String),
     Suggest(String),

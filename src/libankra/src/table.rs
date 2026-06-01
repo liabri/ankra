@@ -28,75 +28,74 @@ impl TableState {
         })
     }
 
-    pub fn on_key_press(&mut self, key_code: u16) -> AnkraResponse {
+    pub fn on_key_press(&mut self, key_code: u16, level: usize) -> AnkraResponse {
         let mut commit = false;
-    	match self.config.keycode_to_spec(&key_code).and_then(|x| x.chars().next()) {
-    		Some('C') => commit = true,
-    		Some('N') => {
-                if self.index+1<(self.relative_entries.len()) {
+        let mut is_control = false; // add a flag to track control keys
+
+        match self.config.keycode_to_spec(&key_code, level).and_then(|x| x.chars().next()) {
+            Some('C') => {
+                commit = true;
+                is_control = true;
+            }
+            Some('N') => {
+                is_control = true;
+                if self.index + 1 < self.relative_entries.len() {
                     self.index += 1;
                 }
-            },
-
-    		Some('P') => {
-                if self.index!=0 { 
+            }
+            Some('P') => {
+                is_control = true;
+                if self.index != 0 {
                     self.index -= 1;
                 }
             }
-
-            // Escape is only considered a key when in input mode
             Some('E') => {
                 if !self.key_sequence.is_empty() {
                     self.reset();
-                    return AnkraResponse::Empty
+                    return AnkraResponse::Empty;
                 }
-            },
-
-            Some('B') => { 
-                self.key_sequence.pop();
-                self.relative_entries.clear(); 
-            },
-    		
-            Some(x @ '0'..='9') => {
-                self.index = (x as usize)-49; //hacky af conversion
             }
-
+            Some('B') => {
+                self.key_sequence.pop();
+                self.relative_entries.clear();
+            }
+            Some(x @ '0'..='9') => {
+                is_control = true;
+                self.index = (x as usize) - 49;
+            }
             _ => {
-                if let Some(c) = self.config.keycode_to_char(&key_code) {
+                if let Some(c) = self.config.keycode_to_char(&key_code, level) {
                     self.key_sequence.push(*c);
                 }
             }
-    	}
+        }
 
-        // get value from dict.csv
-        let result = {
-            if self.relative_entries.is_empty() {
-                for entry in &self.table.entries {
-                    if entry.sequence.starts_with(&self.key_sequence) {
-                        self.relative_entries.push(entry.clone());
-                    }
+        // Only rebuild relative entries if this wasn't a static control action
+        if !is_control {
+            self.index = 0; // Reset active item index on a fresh character input entry
+            self.relative_entries.clear(); // Clear cache to rebuild for new sequence length
+
+            for entry in &self.table.entries {
+                if entry.sequence.starts_with(&self.key_sequence) {
+                    self.relative_entries.push(entry.clone());
                 }
-            } else {          
-                self.relative_entries.retain(|entry| entry.sequence.starts_with(&self.key_sequence));
             }
+        }
 
-            if let Some(entry) = self.relative_entries.get(self.index).map(|x| x.to_owned()) {
-                Some(entry.character.to_string())
-            } else {
-                self.reset();
-                return AnkraResponse::Empty
-            }
+        // Resolve the string out of the filtered entries
+        let value = if let Some(entry) = self.relative_entries.get(self.index) {
+            entry.character.to_string()
+        } else {
+            self.reset();
+            return AnkraResponse::Empty;
         };
 
-        // interpret value from dict.csv
-        if let Some(value) = result {
-            if !self.key_sequence.is_empty() {
-                if commit {
-                    self.reset();
-                    return AnkraResponse::Commit(value)
-                } else {
-                    return AnkraResponse::Suggest(value)
-                }
+        if !self.key_sequence.is_empty() {
+            if commit {
+                self.reset();
+                return AnkraResponse::Commit(value);
+            } else {
+                return AnkraResponse::Suggest(value);
             }
         }
 
@@ -104,7 +103,7 @@ impl TableState {
         AnkraResponse::Undefined
     }
 
-    pub fn on_key_release(&mut self, _key_code: u16) -> AnkraResponse {
+    pub fn on_key_release(&mut self, _key_code: u16, _level: usize) -> AnkraResponse {
         AnkraResponse::Undefined
     }
 
@@ -118,7 +117,6 @@ impl TableState {
 
 #[derive(Default, Debug, Deserialize)]
 pub struct Table {
-    pub id: String,
     pub entries: Vec<Entry>
 }
 
@@ -136,7 +134,6 @@ impl Table {
         let entries = csv::Reader::from_reader(reader).deserialize().collect::<Result<Vec<_>, _>>()?;
 
         Ok(Self {
-            id: id.to_string(),
             entries,
         })
     }
@@ -156,11 +153,11 @@ impl TableConfig {
         Ok(zmerald::from_reader(reader).unwrap())
     }
 
-    pub fn keycode_to_char(&self, keycode: &KeyCode) -> Option<&char> {
-        self.keys.get(keycode)?.first()
+    pub fn keycode_to_char(&self, keycode: &KeyCode, level: usize) -> Option<&char> {
+        self.keys.get(keycode)?.get(level)
     }
 
-    pub fn keycode_to_spec(&self, keycode: &KeyCode) -> Option<&str> {
-        self.specs.get(keycode)?.first().map(|x| &**x)
+    pub fn keycode_to_spec(&self, keycode: &KeyCode, level: usize) -> Option<&str> {
+        self.specs.get(keycode)?.get(level).map(|x| &**x)
     }
 }

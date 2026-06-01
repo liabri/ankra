@@ -4,7 +4,6 @@ use context::AnkraContext;
 use mio::{unix::SourceFd, Events as MioEvents, Interest, Poll, Token};
 use std::os::unix::io::{AsFd, AsRawFd};
 use rustix::time::{timerfd_create, TimerfdClockId, TimerfdFlags};
-use std::os::unix::io::OwnedFd;
 
 use wayland_client::{delegate_noop, Connection, Dispatch, QueueHandle};
 use wayland_client::globals::{registry_queue_init, GlobalListContents};
@@ -55,7 +54,6 @@ pub struct State {
     event_queue: wayland_client::EventQueue<AppState>,
     poll: Poll,
     app_state: AppState,
-    timer_fd: OwnedFd,
 }
 
 const POLL_WAYLAND: Token = Token(0);
@@ -95,7 +93,6 @@ impl State {
             event_queue,
             poll,
             app_state,
-            timer_fd,
         }
     }
 
