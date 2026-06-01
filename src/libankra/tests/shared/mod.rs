@@ -23,13 +23,15 @@ macro_rules! define_layout_test {
     ($layout:expr) => {
         use shared::{ test_input_impl, test_input_with_level_impl };
         use ankra::{ AnkraEngine, AnkraConfig };
+        use std::path::PathBuf;
 
         #[allow(dead_code)]
         #[track_caller]
         fn test_input(keys: &[(u16, AnkraResponse)]) {
             let context = AnkraEngine::new(AnkraConfig {
                 id: $layout.to_string(),
-                ..AnkraConfig::default()
+                // Override the default XDG path with our local test directory!
+                dir: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures"),
             });
             test_input_impl(context, keys);
         }
@@ -37,7 +39,8 @@ macro_rules! define_layout_test {
         fn test_input_with_level(keys: &[(u16, u16, AnkraResponse)]) {
             let context = AnkraEngine::new(AnkraConfig {
                 id: $layout.to_string(),
-                ..AnkraConfig::default()
+                // Same here
+                dir: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures"),
             });
             test_input_with_level_impl(context, keys);
         }
