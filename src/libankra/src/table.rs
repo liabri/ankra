@@ -232,7 +232,10 @@ impl Table {
             if path.exists() {
                 let file = File::open(path)?;
                 let reader = BufReader::new(file);
-                let mut csv_reader = csv::Reader::from_reader(reader);
+
+                let mut csv_reader = csv::ReaderBuilder::new()
+                    .comment(Some(b'#'))
+                    .from_reader(reader);
 
                 for result in csv_reader.deserialize::<Entry>() {
                     if let Ok(entry) = result {
