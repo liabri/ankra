@@ -18,6 +18,11 @@
       # This requires a Cargo.lock file in your project root!
       cargoLock = {
         lockFile = ./Cargo.lock;
+
+        outputHashes = {
+            "mio-timerfd-0.2.0" = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+            "zmerald-0.1.0" = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+        };
       };
     };
 
