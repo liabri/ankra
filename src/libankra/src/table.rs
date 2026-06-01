@@ -1,3 +1,31 @@
+//! Pure state engine for table-based string translation and candidate lookup.
+//!
+//! ## Core State Mechanics & Design Rules
+//!
+//! ### 1. Environmental Decoupling
+//! This core has zero awareness of Wayland, window focus, or I/O multiplexers.
+//! It processes raw input primitives, making it hermetically testable using isolated
+//! data mock fixtures without touching global user directories.
+//!
+//! ### 2. Predictive Prefix-Matching & Complexity ($O(N)$ Filtering)
+//! Candidate matching utilizes a linear prefix scan (`starts_with`) across the entire
+//! dictionary array on every non-control keystroke. This $O(N)$ traversal avoids the
+//! pointer indirection and memory overhead of a prefix trie, prioritizing layout
+//! predictability and straightforward incremental sequence matching.
+//!
+//! ### 3. Declarative Response Architecture
+//! Modifications evaluate immediately into a high-level primitive layout wrapper (`AnkraResponse`).
+//! This abstracts candidate matching logic away from the UI, delegating text composition
+//! rendering and insertion rules entirely to outer protocol layers.
+//!
+//! ### 4. Viewport Memory Management
+//! State transformations divide strictly to minimize processing overhead:
+//! * **Structural Shifts (Keystrokes):** Triggers a full cache eviction, forcing
+//!   a dynamic re-population of `relative_entries` and resetting the viewport pointer (`index = 0`).
+//! * **Navigation Shifts (Page/Digit Jumps):** Operates entirely as a stateless mutation
+//!   of the viewport pointer across the pre-filtered array, shielding layout navigation
+//!   from allocation or database search overhead.
+
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::Path;
@@ -14,11 +42,12 @@ pub struct TableState {
     pub key_sequence: String,
     pub index: usize,
 	pub relative_entries: Vec<Entry>,
-    pub previous_character: String
+    pub previous_character: String,
+    pub weights: HashMap<char, u32>,
+    pub weights_path: std::path::PathBuf,
 }
 
-
-//feature: copy previous character key bind, kinda like a repition mark, will need a var "previous character" buf in TableMethod
+// feature: copy previous character key bind, kinda like a repition mark, will need a var "previous character" buf in TableMethod
 impl TableState {
     pub fn new(id: &str, path: &Path) -> Result<Self, AnkraError> {
         Ok(Self {
@@ -82,10 +111,10 @@ impl TableState {
             }
         }
 
-        // Only rebuild relative entries if this wasn't a static control action
+        // only rebuild relative entries if this wasn't a static control action
         if !is_control {
-            self.index = 0; // Reset active item index on a fresh character input entry
-            self.relative_entries.clear(); // Clear cache to rebuild for new sequence length
+            self.index = 0; // reset active item index on a fresh character input entry
+            self.relative_entries.clear(); // clear cache to rebuild for new sequence length
 
             for entry in &self.table.entries {
                 if entry.sequence.starts_with(&self.key_sequence) {
@@ -94,7 +123,7 @@ impl TableState {
             }
         }
 
-        // Resolve the string out of the filtered entries
+        // resolve the string out of the filtered entries
         let value = if raw_commit {
             self.key_sequence.clone()
         } else if let Some(entry) = self.relative_entries.get(self.index) {
@@ -136,7 +165,7 @@ pub struct Table {
 #[derive(Default, Debug, Clone, Deserialize)]
 pub struct Entry {
     pub character: char,
-    pub sequence: String, //maybe try a tiny_string as this is needlessly large
+    pub sequence: String, // maybe try a tiny_string as this is needlessly large
 }
 
 impl Table {

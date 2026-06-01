@@ -1,4 +1,24 @@
-// src/ankra-wayland/src/context.rs
+//! Stateful bridge between `libankra` (engine) and Wayland protocols.
+//!
+//! ## Core Protocol & Implementation Rules
+//!
+//! ### 1. No Virtual Loopbacks
+//! Keys unconsumed by the engine are injected down `zwp_virtual_keyboard_v1`.
+//! The compositor explicitly bypasses our input grab for these synthetic events,
+//! meaning they never loop back into this handler. No echo filtering is required.
+//!
+//! ### 2. Commit Serialization (`im_done_serial`)
+//! The `im.commit(serial)` parameter must track the total count of compositor `Done`
+//! events received, *not* the hardware keyboard event serial. Passing a hardware
+//! serial violates the protocol spec, causing strict clients to drop text and freeze.
+//!
+//! ### 3. Key Lifecycles & Startup Race Hatch
+//! * **Auto-Repeat:** Handled natively by the OS via the virtual keyboard. No internal
+//!   software timers are used or needed.
+//! * **Startup Hatch:** Launching the daemon via a keystroke introduces a race: the key
+//!   *press* happens before the grab initializes, but the *release* happens after. We
+//!   use `forwarded_presses` and a fallback control-key check (`Enter`, `Space`, etc.)
+//!   to force a clean key-up and prevent stuck-modifier loop storms.
 
 use ankra::{AnkraConfig, AnkraEngine, AnkraResponse};
 use std::sync::atomic::{AtomicBool, Ordering};

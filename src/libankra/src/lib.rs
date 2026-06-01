@@ -1,3 +1,5 @@
+//! Public interface and façade for the Ankra core state machine.
+
 mod error;
 pub use error::AnkraError;
 

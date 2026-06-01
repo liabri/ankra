@@ -1,3 +1,23 @@
+//! Command-line controller and configuration utility for the Ankra input daemon.
+//!
+//! ## Core Architecture & CLI Design Rules
+//!
+//! ### 1. Stateless IPC Signaling
+//! Communicates with the daemon asynchronously by writing flat state variables (`status`,
+//! `current_layout`) straight into the user's unified data runtime paths. This file-driven
+//! methodology acts as a signaling channel that the active background process intercepts
+//! utilizing filesystem watch hooks, completely eliminating network port or socket management overhead.
+//!
+//! ### 2. Dynamic Table Discovery (`lookup`)
+//! Enforces strict layout agnosticism by scanning every CSV dictionary file present inside the
+//! selected layout configuration path at runtime. Rather than hardcoding database schemas or file
+//! targets, it dynamically parses and filters arbitrary sequential rows to find candidate keystroke sequences.
+//!
+//! ### 3. Out-of-Band State Diagnostics (`status`)
+//! Verifies system health by aggregating filesystem configurations with process-level execution metrics
+//! from the kernel. By checking layout files alongside low-level system checks (`pidof`), it
+//! determines if the translation service is organically responsive or suspended.
+
 mod cook;
 
 use std::fs::{ create_dir_all, read_to_string, write };
