@@ -20,7 +20,7 @@
         lockFile = ./Cargo.lock;
 
         outputHashes = {
-            "zmerald-0.1.0" = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+            "zmerald-0.1.0" = "sha256-wC1c64mCFfwLtdDrmb43Dz36h1XcwLpHWMNTO6QDNjw=";
         };
       };
     };
