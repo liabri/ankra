@@ -1,5 +1,5 @@
 {
-  description = "Rust dev shell for Ankra";
+  description = "Rust project Ankra";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-23.05";
 
@@ -7,6 +7,21 @@
     system = "x86_64-linux";
     pkgs = import nixpkgs { inherit system; };
   in {
+    # 1. The Package Output (This is what actually gets installed)
+    packages.${system}.default = pkgs.rustPlatform.buildRustPackage {
+      pname = "ankra";
+      version = "0.1.0"; # Match this to Cargo.toml version
+
+      src = ./.;
+
+      # Nix needs to hash dependencies to remain pure.
+      # This requires a Cargo.lock file in your project root!
+      cargoLock = {
+        lockFile = ./Cargo.lock;
+      };
+    };
+
+    # 2. devShell (For local coding)
     devShells.${system}.default = pkgs.mkShell {
       buildInputs = [
         pkgs.rustup
