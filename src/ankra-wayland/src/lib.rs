@@ -54,13 +54,14 @@ pub struct State {
     event_queue: wayland_client::EventQueue<AppState>,
     poll: Poll,
     app_state: AppState,
+    is_active: Arc<AtomicBool>,
 }
 
 const POLL_WAYLAND: Token = Token(0);
 const POLL_TIMER: Token = Token(1);
 
 impl State {
-    pub fn new(id: &str) -> Self {
+    pub fn new(id: &str, is_active: Arc<AtomicBool>) -> Self {
         let conn = Connection::connect_to_env().expect("Failed to connect to wayland display");
         let (globals, mut event_queue) = registry_queue_init::<AppState>(&conn).unwrap();
         let qh = event_queue.handle();
@@ -93,7 +94,18 @@ impl State {
             event_queue,
             poll,
             app_state,
+            is_active
         }
+    }
+
+    fn handle_keyboard_key(&mut self, keycode: u16, state: KeyState) {
+        // read directly from CPU cache. no locking, no system calls, no file IO.
+        if !self.is_active.load(Ordering::Relaxed) {
+            self.forward_raw_key_to_compositor(keycode, state);
+            return;
+        }
+
+        self.process_cangjie_sequence(keycode, state);
     }
 
     pub fn run(&mut self) {
