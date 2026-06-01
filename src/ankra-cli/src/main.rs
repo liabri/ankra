@@ -280,8 +280,8 @@ mod tests {
         let layout_dir = temp_config_home.join("test_layout");
         fs::create_dir_all(&layout_dir).unwrap();
 
-        // Write a mock table.csv
-        let mut table = File::create(layout_dir.join("table.csv")).unwrap();
+        // Write a mock chars.csv
+        let mut table = File::create(layout_dir.join("chars.csv")).unwrap();
         writeln!(table, "character,sequence").unwrap();
         writeln!(table, "我,hqi").unwrap();
         writeln!(table, "的,hpi").unwrap();

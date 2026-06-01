@@ -7,7 +7,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 
-const BASE_TABLE_NAME: &str = "table.csv";
+const BASE_TABLE_NAME: &str = "chars.csv";
 
 fn load_character_map(table_path: &PathBuf) -> Result<HashMap<String, String>, Box<dyn Error>> {
     let mut char_map = HashMap::new();
@@ -127,7 +127,7 @@ pub fn run(layout_id: &str, ingredient_filename: &str, output_filename: &str) ->
     let output_path = layout_dir.join(format!("{}.csv", output_filename));
 
     if !table_path.exists() {
-        return Err(format!("Error: table.csv configuration missing at: {}", table_path.display()).into());
+        return Err(format!("Error: chars.csv configuration missing at: {}", table_path.display()).into());
     }
     if !input_path.exists() {
         return Err(format!("Error: Ingredient file '{}' missing from layout folder: {}", ingredient_filename, layout_dir.display()).into());
@@ -256,7 +256,7 @@ mod tests {
 
     #[test]
     fn test_missing_character_graceful_fail() {
-        // If a phrase contains a character missing from table.csv, it must abort cleanly
+        // If a phrase contains a character missing from chars.csv, it must abort cleanly
         let map = mock_char_map();
         let phrase = "AX"; // 'X' is not in our mock map
         assert_eq!(encode_cangjie5(phrase, &map), None);
