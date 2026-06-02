@@ -62,6 +62,7 @@ impl TableState {
         let mut commit = false;
         let mut raw_commit = false; // flag to track explicit Enter bypass
         let mut is_control = false; // add a flag to track control keys
+        let was_empty = self.key_sequence.is_empty(); // snapshot the buffer state before processing the key
 
         match self.config.keycode_to_spec(&key_code, level).and_then(|x| x.chars().next()) {
             Some('C') => {
@@ -102,7 +103,18 @@ impl TableState {
 
             Some(x @ '0'..='9') => {
                 is_control = true;
-                self.index = (x as usize) - 49;
+                // safely map 1-9 to index 0-8, and 0 to index 9
+                let requested_index = match x {
+                    '1'..='9' => (x as usize) - 49,
+                    '0' => 9,
+                    _ => unreachable!(),
+                };
+
+                // only change the selection if the candidate actually exists!
+                // if it doesn't, we do nothing, safely preserving their current candidate.
+                if requested_index < self.relative_indices.len() {
+                    self.index = requested_index;
+                }
             }
 
             _ => {
@@ -173,7 +185,12 @@ impl TableState {
         }
 
         self.reset();
-        AnkraResponse::Undefined
+
+        if !was_empty {
+            AnkraResponse::Empty
+        } else {
+            AnkraResponse::Undefined
+        }
     }
 
     pub fn on_key_release(&mut self, _key_code: u16, _level: usize) -> AnkraResponse {

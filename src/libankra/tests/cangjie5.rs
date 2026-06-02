@@ -98,6 +98,29 @@ fn cangjie_backspace_key() {
 }
 
 #[test]
+fn cangjie_backspace_restores_exact_match() {
+    test_input(&[
+        (43, AnkraResponse::Suggest(String::from("竹"))),      // h
+        (24, AnkraResponse::Suggest(String::from("牛"))),      // hq -> exact match
+        (43, AnkraResponse::Suggest(String::from("我的"))),    // hqh -> heavy phrase prediction takes over
+
+        // BACKSPACE (22): must instantly drop the phrase and restore the exact match!
+        (22, AnkraResponse::Suggest(String::from("牛"))),
+        (65, AnkraResponse::Commit(String::from("牛"))),
+    ])
+}
+
+#[test]
+fn cangjie_backspace_to_empty_clears_ui() {
+    test_input(&[
+        (24, AnkraResponse::Suggest(String::from("手"))), // q
+        // Backspace (22) from 1 char to 0 chars.
+        // MUST return Empty so the Wayland context drops the pre-edit box!
+        (22, AnkraResponse::Empty),
+    ])
+}
+
+#[test]
 fn cangjie_escape_key() {
     test_input(&[
         (24, AnkraResponse::Suggest(String::from("手"))),
@@ -115,6 +138,22 @@ fn cangjie_direct_digit_selection() {
         (24, 0, AnkraResponse::Suggest(String::from("手"))),
         (24, 0, AnkraResponse::Suggest(String::from("抙"))),
         // Tapping '2' shifts the selection to Candidate index 1 ("𠂖")
+        (11, 0, AnkraResponse::Suggest(String::from("𠂖"))),
+        (65, 0, AnkraResponse::Commit(String::from("𠂖"))),
+    ])
+}
+
+#[test]
+fn cangjie_out_of_bounds_digit_selection() {
+    test_input_with_level(&[
+        (24, 0, AnkraResponse::Suggest(String::from("手"))), // q
+        (24, 0, AnkraResponse::Suggest(String::from("抙"))), // qq (matches: 抙, 𠂖, 掱)
+
+        // user accidentally presses '9' (Key 18). Only 3 exist!
+        // engine safely ignores the invalid index, preserving the current selection ("抙")
+        (18, 0, AnkraResponse::Suggest(String::from("抙"))),
+
+        // user realizes their mistake and correctly presses '2' (Key 11) to select "𠂖"
         (11, 0, AnkraResponse::Suggest(String::from("𠂖"))),
         (65, 0, AnkraResponse::Commit(String::from("𠂖"))),
     ])
@@ -209,37 +248,100 @@ fn cangjie_raw_enter_escape_hatch() {
 }
 
 #[test]
+fn cangjie_raw_enter_bypasses_phrase_prediction() {
+    test_input(&[
+        (43, AnkraResponse::Suggest(String::from("竹"))),      // h
+        (24, AnkraResponse::Suggest(String::from("牛"))),      // hq
+        (43, AnkraResponse::Suggest(String::from("我的"))),    // hqh -> Suggests "我的"
+
+        // Enter (36): Explicitly bypasses the prediction and commits the raw alphabet
+        (36, AnkraResponse::Commit(String::from("hqh"))),
+
+        // Ensure buffer is wiped and ready for next input
+        (43, AnkraResponse::Suggest(String::from("竹"))),
+    ])
+}
+
+#[test]
+fn cangjie_phrase_completion() {
+    // Tests typing a long multi-character phrase step-by-step and that
+    // a shorter prediction match always overrides a heavier phrase prediction
+    test_input(&[
+        (43, AnkraResponse::Suggest(String::from("竹"))),      // h -> exact match
+        (24, AnkraResponse::Suggest(String::from("牛"))),      // hq -> exact match
+        (43, AnkraResponse::Suggest(String::from("我的"))),      // hqh -> highest weighted prefix match, shorter codes (like 篺 do not get priority) over longer codes
+        (33, AnkraResponse::Suggest(String::from("䉥"))),      // hqhp -> exact match
+        (31, AnkraResponse::Suggest(String::from("我的"))),    // hqhpi -> full phrase match
+        (65, AnkraResponse::Commit(String::from("我的"))),     // Spacebar commits phrase
+    ])
+}
+
+#[test]
 fn cangjie_dynamic_weight_sorting() {
     test_input_with_level(&[
         // --- FIRST PASS ---
-        // 1. Press 'q' (24). Defaults to candidate 0 ("手")
-        (24, 0, AnkraResponse::Suggest(String::from("手"))),
-
-        // 2. Press 'Tab' (23) to navigate to candidate 1 ("抙")
-        (23, 0, AnkraResponse::Suggest(String::from("抙"))),
-
-        // 3. Press Spacebar (65) to commit "抙".
-        // ENGINE MAGIC: "抙" gets +1 weight and bubbles to index 0!
-        (65, 0, AnkraResponse::Commit(String::from("抙"))),
+        (24, 0, AnkraResponse::Suggest(String::from("手"))), // q -> exact match
+        (23, 0, AnkraResponse::Suggest(String::from("抙"))), // tab -> '抙' is above '𠂖' in default order
+        (23, 0, AnkraResponse::Suggest(String::from("𠂖"))), // tab
+        (65, 0, AnkraResponse::Commit(String::from("𠂖"))),  // space
 
         // --- SECOND PASS ---
-        // 4. Press 'q' (24) again. Because of the memory mutation,
-        // "抙" is now naturally sitting at index 0!
-        (24, 0, AnkraResponse::Suggest(String::from("抙"))),
-
-        // 5. Press 'Tab' (23) to navigate to candidate 1.
-        // "手" was pushed down, so it is now at index 1.
-        (23, 0, AnkraResponse::Suggest(String::from("手"))),
-
-        // 6. Commit "手"
-        (65, 0, AnkraResponse::Commit(String::from("手"))),
+        // because of the memory mutation, '𠂖' should now be sitting at index 0, above '抙'
+        (24, 0, AnkraResponse::Suggest(String::from("手"))), // q -> exact match
+        (24, 0, AnkraResponse::Suggest(String::from("𠂖"))), // qq -> '𠂖' is above '抙' in new weighted order (1:0)
+        (23, 0, AnkraResponse::Suggest(String::from("抙"))), // tab
+        (65, 0, AnkraResponse::Commit(String::from("抙"))),  // space
 
         // --- THIRD PASS ---
-        (24, 0, AnkraResponse::Suggest(String::from("抙"))),
-        (23, 0, AnkraResponse::Suggest(String::from("手"))),
-        (65, 0, AnkraResponse::Commit(String::from("手"))),
+        (24, 0, AnkraResponse::Suggest(String::from("手"))), // q -> exact match
+        (24, 0, AnkraResponse::Suggest(String::from("𠂖"))), // qq -> '𠂖' is above '抙' in weighted order (1:1) as on a tie, first one to get there wins
+        (23, 0, AnkraResponse::Suggest(String::from("抙"))), // tab
+        (65, 0, AnkraResponse::Commit(String::from("抙"))),  // space
 
         // --- FOURTH PASS ---
-        (24, 0, AnkraResponse::Suggest(String::from("手"))),
+        (24, 0, AnkraResponse::Suggest(String::from("手"))), // q -> exact match
+        (24, 0, AnkraResponse::Suggest(String::from("抙"))), // qq -> '𠂖' is below '抙' in new weighted order (1:2)
+        (65, 0, AnkraResponse::Commit(String::from("抙"))),  // space
+    ])
+}
+
+
+#[test]
+fn cangjie_dynamic_weight_sorting_phrases() {
+    // tests handling a full phrase collision (我想 vs 得想) and proves the heavier item bubbles up
+    test_input_with_level(&[
+        // --- FIRST PASS: Both weights are 0, '我想' is suggested first ---
+        (43, 0, AnkraResponse::Suggest(String::from("竹"))),   // h
+        (31, 0, AnkraResponse::Suggest(String::from("我想"))), // hi
+        (40, 0, AnkraResponse::Suggest(String::from("我想"))), // hid
+        (30, 0, AnkraResponse::Suggest(String::from("我想"))), // hidu
+        (33, 0, AnkraResponse::Suggest(String::from("我想"))), // hidup -> full sequence collision point
+
+        // Tap 'Tab' (23) to navigate past '我想' to see candidate index 1: '得想'
+        (23, 0, AnkraResponse::Suggest(String::from("得想"))),
+        (65, 0, AnkraResponse::Commit(String::from("得想"))),  // Commit '得想' (+1 weight!)
+
+        // --- SECOND PASS: '得想' has now dynamically bubbled past '我想' in memory ---
+        (43, 0, AnkraResponse::Suggest(String::from("竹"))),   // h
+        (31, 0, AnkraResponse::Suggest(String::from("得想"))), // hi -> '得想' wins candidate 0 instantly!
+        (40, 0, AnkraResponse::Suggest(String::from("得想"))), // hid
+        (30, 0, AnkraResponse::Suggest(String::from("得想"))), // hidu
+        (33, 0, AnkraResponse::Suggest(String::from("得想"))), // hidup
+        (65, 0, AnkraResponse::Commit(String::from("得想"))),
+    ])
+}
+
+#[test]
+fn cangjie_dynamic_weighting_exact_matches() {
+    test_input_with_level(&[
+        // --- FIRST PASS ---
+        (38, 0, AnkraResponse::Suggest(String::from("日"))), // a -> '日' is candidate 0
+        (23, 0, AnkraResponse::Suggest(String::from("曰"))), // Tab -> '曰' is candidate 1
+        (65, 0, AnkraResponse::Commit(String::from("曰"))),  // Commit '曰' (+1 weight)
+
+        // --- SECOND PASS ---
+        // Because they have identical codes, '曰' must now bubble past '日'
+        (38, 0, AnkraResponse::Suggest(String::from("曰"))), // a -> '曰' is now candidate 0!
+        (65, 0, AnkraResponse::Commit(String::from("曰"))),
     ])
 }

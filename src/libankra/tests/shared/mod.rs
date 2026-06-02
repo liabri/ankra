@@ -24,8 +24,7 @@ pub fn reset_layout_weights(base_dir: &Path, layout_id: &str) {
     let layout_dir = base_dir.join(layout_id);
     std::fs::create_dir_all(&layout_dir).unwrap();
 
-    // Pristine 9-row baseline layout. Notice '抙' is ordered before '𠂖'
-    // so it naturally wins the tie-breaker when weights are identical!
+    // pristine 9-row baseline layout
     let chars_content = "character,sequence,weight\n\
                          日,a,0\n\
                          手,q,0\n\
@@ -35,10 +34,17 @@ pub fn reset_layout_weights(base_dir: &Path, layout_id: &str) {
                          中,l,0\n\
                          𬡂,lo,0\n\
                          掱,qqq,0\n\
-                         𮕶,lol,0\n";
+                         𮕶,lol,0\n\
+                         竹,h,0\n\
+                         牛,hq,0\n\
+                         篺,hqhj,0\n\
+                         䉥,hqhp,0\n";
 
+    // phrases dataset containing a standard completion and an authentic Cangjie5 sequence collision.
     let phrases_content = "character,sequence,weight\n\
-                           我的,hqhpi,0\n";
+                           我的,hqhpi,1\n\
+                           我想,hidup,0\n\
+                           得想,hidup,0\n";
 
     std::fs::write(layout_dir.join("chars.csv"), chars_content).unwrap();
     std::fs::write(layout_dir.join("phrases.csv"), phrases_content).unwrap();
