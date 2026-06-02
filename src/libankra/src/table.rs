@@ -1,30 +1,10 @@
 //! Pure state engine for table-based string translation and candidate lookup.
 //!
-//! ## Core State Mechanics & Design Rules
-//!
-//! ### 1. Environmental Decoupling
-//! This core has zero awareness of Wayland, window focus, or I/O multiplexers.
-//! It processes raw input primitives, making it hermetically testable using isolated
-//! data mock fixtures without touching global user directories.
-//!
-//! ### 2. Predictive Prefix-Matching & Complexity ($O(N)$ Filtering)
-//! Candidate matching utilizes a linear prefix scan (`starts_with`) across the entire
+//! Predictive Prefix-Matching & Complexity ($O(N)$ Filtering)
+//! Candidate matching utilises a linear prefix scan (`starts_with`) across the entire
 //! dictionary array on every non-control keystroke. This $O(N)$ traversal avoids the
 //! pointer indirection and memory overhead of a prefix trie, prioritizing layout
 //! predictability and straightforward incremental sequence matching.
-//!
-//! ### 3. Declarative Response Architecture
-//! Modifications evaluate immediately into a high-level primitive layout wrapper (`AnkraResponse`).
-//! This abstracts candidate matching logic away from the UI, delegating text composition
-//! rendering and insertion rules entirely to outer protocol layers.
-//!
-//! ### 4. Viewport Memory Management
-//! State transformations divide strictly to minimize processing overhead:
-//! * **Structural Shifts (Keystrokes):** Triggers a full cache eviction, forcing
-//!   a dynamic re-population of `relative_indices` and resetting the viewport pointer (`index = 0`).
-//! * **Navigation Shifts (Page/Digit Jumps):** Operates entirely as a stateless mutation
-//!   of the viewport pointer across the pre-filtered array, shielding layout navigation
-//!   from allocation or database search overhead.
 
 use serde::{ Deserialize, Serialize };
 use std::collections::HashMap;
@@ -78,6 +58,7 @@ impl TableState {
             Some("RAWCOMMIT") => Intent::RawCommit,
             Some("BACKSPACE") => Intent::Backspace,
             Some("COMMITANDPASS") => if was_empty { Intent::PassThrough } else { Intent::CommitAndPass },
+            Some("IGNORE") => if was_empty { Intent::PassThrough } else { Intent::NoOp },
             Some("NEXT") => {
                 if self.index + 1 < self.relative_indices.len() { self.index += 1; }
                 Intent::Navigate

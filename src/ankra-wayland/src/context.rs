@@ -1,24 +1,25 @@
 //! Stateful bridge between `libankra` (engine) and Wayland protocols.
 //!
-//! ## Core Protocol & Implementation Rules
-//!
-//! ### 1. No Virtual Loopbacks
+//! No Virtual Loopbacks
 //! Keys unconsumed by the engine are injected down `zwp_virtual_keyboard_v1`.
 //! The compositor explicitly bypasses our input grab for these synthetic events,
 //! meaning they never loop back into this handler. No echo filtering is required.
 //!
-//! ### 2. Commit Serialization (`im_done_serial`)
-//! The `im.commit(serial)` parameter must track the total count of compositor `Done`
-//! events received, *not* the hardware keyboard event serial. Passing a hardware
-//! serial violates the protocol spec, causing strict clients to drop text and freeze.
-//!
-//! ### 3. Key Lifecycles & Startup Race Hatch
+//! Key Lifecycles & Startup Race Hatch
 //! * **Auto-Repeat:** Handled natively by the OS via the virtual keyboard. No internal
 //!   software timers are used or needed.
 //! * **Startup Hatch:** Launching the daemon via a keystroke introduces a race: the key
-//!   *press* happens before the grab initializes, but the *release* happens after. We
+//!   press happens before the grab initializes, but the release happens after. We
 //!   use `forwarded_presses` and a fallback control-key check (`Enter`, `Space`, etc.)
 //!   to force a clean key-up and prevent stuck-modifier loop storms.
+//!
+//! Stateless Modifier Heuristics (AltGr & Shift)
+//! To avoid a heavyweight `libxkbcommon` C-library dependency and FFI overhead,
+//! we calculate layout levels using standard Linux `pc105` modifier bitmasks
+//! (Shift = Bit 0, Mod5/AltGr = Bit 7). We explicitly extract only these bits
+//! rather than using wide inverse masks. This ensures that dirty background
+//! Wayland locks (like NumLock or CapsLock) do not accidentally kill the IME grab
+//! or disrupt the composition state.
 
 use ankra::{AnkraConfig, AnkraEngine, AnkraResponse};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -95,10 +96,10 @@ impl AnkraContext {
                 if key_idx >= 512 { return; }
 
                 let is_pressed = if let WEnum::Value(KeyState::Pressed) = state { true } else { false };
-                let has_control_mods = (self.modifiers & (4 | 8 | 64)) != 0; // immunizes against dirty background bits like NumLock
+                let has_control_mods = XkbModifiers::has_control(self.modifiers);
 
                 if self.im_active && !has_control_mods && self.is_global_active.load(Ordering::Relaxed) {
-                    let level = (self.modifiers & 1) as usize;
+                    let level = XkbModifiers::get_level(self.modifiers);
                     if is_pressed {
                         match self.engine.on_key_press((key + 8) as u16, level) {
                             AnkraResponse::Suggest(s) => {
@@ -162,5 +163,58 @@ impl AnkraContext {
         if self.engine.uncommitted_weight_mutations() >= 500 {
                 self.engine.flush();
         }
+    }
+}
+
+struct XkbModifiers;
+impl XkbModifiers {
+    const SHIFT: u32 = 1 << 0;  // 1
+    const CTRL: u32  = 1 << 2;  // 4
+    const ALT: u32   = 1 << 3;  // 8
+    const SUPER: u32 = 1 << 6;  // 64
+    const ALTGR: u32 = 1 << 7;  // 128
+
+    fn has_control(mods: u32) -> bool {
+        (mods & (Self::CTRL | Self::ALT | Self::SUPER)) != 0
+    }
+
+    fn get_level(mods: u32) -> usize {
+        let shift = (mods & Self::SHIFT) != 0;
+        let altgr = (mods & Self::ALTGR) != 0;
+        match (shift, altgr) {
+            (false, false) => 0,
+            (true, false)  => 1,
+            (false, true)  => 2,
+            (true, true)   => 3,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::XkbModifiers;
+
+    #[test]
+    fn test_modifier_levels_and_dirty_bits() {
+        assert_eq!(XkbModifiers::get_level(0), 0);   // Normal
+        assert_eq!(XkbModifiers::get_level(1), 1);   // Shift only (Bit 0)
+        assert_eq!(XkbModifiers::get_level(128), 2); // AltGr only (Bit 7)
+        assert_eq!(XkbModifiers::get_level(129), 3); // Shift + AltGr
+
+        // proving dirty background locks (like CapsLock or NumLock) are safely ignored
+        assert_eq!(XkbModifiers::get_level(3), 1);   // CapsLock (2) + Shift (1) = Level 1
+        assert_eq!(XkbModifiers::get_level(144), 2); // NumLock (16) + AltGr (128) = Level 2
+    }
+
+    #[test]
+    fn test_control_bypass_interception() {
+        assert_eq!(XkbModifiers::has_control(0), false);
+        assert_eq!(XkbModifiers::has_control(1), false);   // Shift
+        assert_eq!(XkbModifiers::has_control(128), false); // AltGr
+
+        // system hotkeys MUST trigger a control bypass
+        assert_eq!(XkbModifiers::has_control(4), true);  // Ctrl (Bit 2)
+        assert_eq!(XkbModifiers::has_control(8), true);  // Alt (Bit 3)
+        assert_eq!(XkbModifiers::has_control(64), true); // Super (Bit 6)
     }
 }

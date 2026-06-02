@@ -379,3 +379,33 @@ fn cangjie_autocommit_predictive_phrase() {
         (43, AnkraResponse::Suggest(String::from("竹"))),      // h
     ])
 }
+
+#[test]
+fn test_level_0_punctuation_ordering() {
+    test_input_with_level(&[
+        // 1. Type 'q' (Key 24) at Level 0. Buffer has "手".
+        (24, 0, AnkraResponse::Suggest(String::from("手"))),
+
+        // 2. Type Comma (Key 59) at Level 0.
+        // The engine MUST yield CommitAndPass so Wayland knows to flush "手" before hitting the key.
+        (59, 0, AnkraResponse::CommitAndPass(String::from("手"))),
+
+        // 3. Type Comma again on an empty buffer. Natively drops to pure hardware passthrough.
+        (59, 0, AnkraResponse::Undefined),
+    ])
+}
+
+#[test]
+fn test_level_1_punctuation_ordering() {
+    test_input_with_level(&[
+        // 1. Type 'q' (Key 24) at Level 0. Buffer has "手".
+        (24, 0, AnkraResponse::Suggest(String::from("手"))),
+
+        // 2. Type '1' (Key 10) at Level 1 (Shift + 1 = Exclamation Point '!').
+        // The engine MUST read Level 1 and yield CommitAndPass to guarantee sequential execution!
+        (10, 1, AnkraResponse::CommitAndPass(String::from("手"))),
+
+        // 3. Type Shift + 1 again on an empty buffer. Drops cleanly back to raw hardware injection.
+        (10, 1, AnkraResponse::Undefined),
+    ])
+}

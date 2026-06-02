@@ -1,13 +1,11 @@
 //! Entry point and configuration loop orchestrator for the `ankrad` daemon.
 //!
-//! ## Core Architecture Rules
-//!
-//! ### 1. Filesystem-Driven IPC
+//! Filesystem-Driven IPC
 //! Leverages flat files under `$XDG_DATA_HOME` combined with the kernel's native filesystem events
 //! for cross-process control. This design allows `ankra-cli` to mutate states asynchronously
 //! without requiring complex runtime socket listeners, custom network protocols, or serialization overhead.
 //!
-//! ### 2. Lock-Free State Sharing (`Arc<AtomicBool>`)
+//! Lock-Free State Sharing (`Arc<AtomicBool>`)
 //! The global active toggle state is read constantly on every single keyboard interaction but updated
 //! rarely. Utilizing a relaxed atomic memory ordering avoids heavy context switching and lock contention
 //! (`Mutex`/`RwLock`), keeping the critical typing execution path running at raw machine speed.

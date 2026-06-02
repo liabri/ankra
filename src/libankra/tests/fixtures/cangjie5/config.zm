@@ -1,28 +1,33 @@
 {
     specs: {
-        9 : [ ESCAPE        ],
-        22: [ BACKSPACE     ],
-        23: [ NEXT, PREV    ],
-        36: [ RAWCOMMIT     ],
-        65: [ COMMIT        ],
-        113:[ PREV          ],
-        114:[ NEXT          ],
-        10 :[ 1             ],
-        11 :[ 2             ],
-        12 :[ 3             ],
-        13 :[ 4             ],
-        14 :[ 5             ],
-        15 :[ 6             ],
-        16 :[ 7             ],
-        17 :[ 8             ],
-        18 :[ 9             ],
-        59: [ COMMITANDPASS ], # Comma (,)
-        60: [ COMMITANDPASS ], # Period (.)
-        61: [ COMMITANDPASS ], # Slash (/)
-        47: [ COMMITANDPASS ], # Semicolon (;)
-        48: [ COMMITANDPASS ], # Quote (')
-        34: [ COMMITANDPASS ], # Left Bracket ([)
-        35: [ COMMITANDPASS ]  # Right Bracket (])
+        9 : [ ESCAPE           ],
+        22: [ BACKSPACE        ],
+        23: [ NEXT, PREV       ],
+        36: [ RAWCOMMIT        ],
+        65: [ COMMIT           ],
+        113:[ PREV             ],
+        114:[ NEXT             ],
+        10 :[ 1, COMMITANDPASS ], # Exclamation Point (!)
+        11 :[ 2, COMMITANDPASS ], # Quotation Mark (")
+        12 :[ 3, COMMITANDPASS ], # Hashtag (#)
+        13 :[ 4, COMMITANDPASS ], # Dollar ($)
+        14 :[ 5, COMMITANDPASS ], # Percentage (%)
+        15 :[ 6, COMMITANDPASS ], # Caret (^)
+        16 :[ 7, COMMITANDPASS ], # Ampersand (&)
+        17 :[ 8, COMMITANDPASS ], # Asterisk (*)
+        18 :[ 9, COMMITANDPASS ], # Paranthesis Left (()
+        19 :[ 0, COMMITANDPASS ], # Paranthesis Right ())
+        20: [ COMMITANDPASS, COMMITANDPASS ], # Minus / Underscore (or map to PREV)
+        21: [ COMMITANDPASS, COMMITANDPASS ], # Equal / Plus (or map to NEXT)
+        49: [ COMMITANDPASS, COMMITANDPASS ], # Backtick / Tilde
+        51: [ COMMITANDPASS, COMMITANDPASS ], # Backslash / Pipe
+        59: [ COMMITANDPASS, COMMITANDPASS ], # Comma (,) / Less Than (<)
+        60: [ COMMITANDPASS, COMMITANDPASS ], # Period (.) / Greater Than (>)
+        61: [ COMMITANDPASS, COMMITANDPASS, COMMITANDPASS ], # Slash (/) / Question Mark (?)
+        47: [ COMMITANDPASS, COMMITANDPASS ], # Semicolon (;) / Colon (:)
+        48: [ COMMITANDPASS, COMMITANDPASS ], # Quote (') / Double Quote (")
+        34: [ COMMITANDPASS, COMMITANDPASS ], # Left Bracket ([) / Brace ({)
+        35: [ COMMITANDPASS, COMMITANDPASS ]  # Right Bracket (]) / Brace (})
     },
 
     keys: {

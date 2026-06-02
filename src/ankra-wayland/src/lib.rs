@@ -1,20 +1,16 @@
-//! Orchestrator and event loop runner for the Wayland input method daemon.
+//! Orchestrator and event loop runner for `ankrad`.
 //!
-//! ## Core Architecture & Loop Mechanics
-//!
-//! ### 1. Asynchronous Multiplexing (Mio Integration)
+//! Asynchronous Multiplexing (Mio Integration)
 //! Integrates Wayland's connection file descriptor into a `mio` epoll instance.
-//! This architecture avoids CPU spin-locking and guarantees that future system descriptors
-//! (such as IPC unix sockets or `inotify` configuration watches) can merge seamlessly
-//! into the same single-threaded execution loop.
+//! This guarantees that future system descriptors (such as IPC unix sockets or `inotify`
+//! configuration watches) can merge seamlessly into the same single-threaded execution loop.
 //!
-//! ### 2. Defensive Socket Traps (`prepare_read`)
-//! Employs Wayland's distinct concurrent read-guard pipeline (`prepare_read`, `read`,
-//! `dispatch_pending`). This structural flow isolates socket data processing from
-//! frame delivery, ensuring event frames are read atomically and preventing deadlocks
-//! or race conditions on the display socket.
+//! Socket Traps (`prepare_read`)
+//! Employs Wayland's concurrent read-guard pipeline (`prepare_read`, `read`, `dispatch_pending`),
+//! which isolates socket data processing from frame delivery, ensuring event frames are
+//! read atomically and preventing deadlocks or race conditions on the display socket.
 //!
-//! ### 3. Session Binding & Interception Layer
+//! Binding & Interception
 //! Binds the `Seat`, `InputMethodManager`, and `VirtualKeyboardManager` protocols
 //! simultaneously upon instantiation. Creating the keyboard grab locks down the current
 //! session's input pipeline, forcing hardware events into our state machine before they
