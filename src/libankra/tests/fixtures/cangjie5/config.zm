@@ -1,21 +1,28 @@
 {
     specs: {
-        9 : [ ESCAPE     ],
-        22: [ BACKSPACE  ],
-        23: [ NEXT, PREV ],
-        36: [ RAWCOMMIT  ],
-        65: [ COMMIT     ],
-        113:[ PREV       ],
-        114:[ NEXT       ],
-        10 :[ 1          ],
-        11 :[ 2          ],
-        12 :[ 3          ],
-        13 :[ 4          ],
-        14 :[ 5          ],
-        15 :[ 6          ],
-        16 :[ 7          ],
-        17 :[ 8          ],
-        18 :[ 9          ]
+        9 : [ ESCAPE        ],
+        22: [ BACKSPACE     ],
+        23: [ NEXT, PREV    ],
+        36: [ RAWCOMMIT     ],
+        65: [ COMMIT        ],
+        113:[ PREV          ],
+        114:[ NEXT          ],
+        10 :[ 1             ],
+        11 :[ 2             ],
+        12 :[ 3             ],
+        13 :[ 4             ],
+        14 :[ 5             ],
+        15 :[ 6             ],
+        16 :[ 7             ],
+        17 :[ 8             ],
+        18 :[ 9             ],
+        59: [ COMMITANDPASS ], # Comma (,)
+        60: [ COMMITANDPASS ], # Period (.)
+        61: [ COMMITANDPASS ], # Slash (/)
+        47: [ COMMITANDPASS ], # Semicolon (;)
+        48: [ COMMITANDPASS ], # Quote (')
+        34: [ COMMITANDPASS ], # Left Bracket ([)
+        35: [ COMMITANDPASS ]  # Right Bracket (])
     },
 
     keys: {

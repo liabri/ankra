@@ -54,6 +54,7 @@ pub enum AnkraResponse {
     Suggest(String),
     Undefined, //Error
     Empty, //KeyCode found but didnt have anything to return eg. function keys
+    CommitAndPass(String) //Commit the buffer, but do NOT swallow the hardware key
 }
 
 pub struct AnkraConfig {

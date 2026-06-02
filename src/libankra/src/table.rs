@@ -59,137 +59,141 @@ impl TableState {
     }
 
     pub fn on_key_press(&mut self, key_code: u16, level: usize) -> AnkraResponse {
-        let mut commit = false;
-        let mut raw_commit = false; // flag to track explicit Enter bypass
-        let mut is_control = false; // add a flag to track control keys
-        let was_empty = self.key_sequence.is_empty(); // snapshot the buffer state before processing the key
+        let was_empty = self.key_sequence.is_empty();
 
-        match self.config.keycode_to_spec(&key_code, level).and_then(|x| x.chars().next()) {
-            Some('C') => {
-                commit = true;
-                is_control = true;
+        #[derive(Debug, PartialEq)]
+        enum Intent {
+            Commit,
+            CommitAndPass,
+            RawCommit,
+            Navigate,
+            Backspace,
+            Type(char),
+            NoOp,
+            PassThrough,
+        }
+
+        let intent = match self.config.keycode_to_spec(&key_code, level) {
+            Some("COMMIT") => Intent::Commit,
+            Some("RAWCOMMIT") => Intent::RawCommit,
+            Some("BACKSPACE") => Intent::Backspace,
+            Some("COMMITANDPASS") => if was_empty { Intent::PassThrough } else { Intent::CommitAndPass },
+            Some("NEXT") => {
+                if self.index + 1 < self.relative_indices.len() { self.index += 1; }
+                Intent::Navigate
             }
 
-            Some('N') => {
-                is_control = true;
-                if self.index + 1 < self.relative_indices.len() {
-                    self.index += 1;
-                }
+            Some("PREV") => {
+                if self.index > 0 { self.index -= 1; }
+                Intent::Navigate
             }
 
-            Some('P') => {
-                is_control = true;
-                if self.index != 0 {
-                    self.index -= 1;
-                }
-            }
-
-            Some('E') => {
-                if !self.key_sequence.is_empty() {
+            Some("ESCAPE") => {
+                if !was_empty {
                     self.reset();
                     return AnkraResponse::Empty;
                 }
+                Intent::PassThrough
             }
 
-            Some('R') => {
-                raw_commit = true;
-                is_control = true;
-            }
-
-            Some('B') => {
-                self.key_sequence.pop();
-                self.relative_indices.clear();
-            }
-
-            Some(x @ '0'..='9') => {
-                is_control = true;
-                // safely map 1-9 to index 0-8, and 0 to index 9
-                let requested_index = match x {
-                    '1'..='9' => (x as usize) - 49,
+            Some(x) if x.len() == 1 && x.chars().next().unwrap().is_ascii_digit() => {
+                let digit_char = x.chars().next().unwrap();
+                let requested_index = match digit_char {
+                    '1'..='9' => (digit_char as usize) - 49,
                     '0' => 9,
                     _ => unreachable!(),
                 };
-
-                // only change the selection if the candidate actually exists!
-                // if it doesn't, we do nothing, safely preserving their current candidate.
                 if requested_index < self.relative_indices.len() {
                     self.index = requested_index;
                 }
+                Intent::Navigate
             }
 
-            _ => {
-                if let Some(c) = self.config.keycode_to_char(&key_code, level) {
-                    self.key_sequence.push(*c);
+            _ => match self.config.keycode_to_char(&key_code, level) {
+                Some(&c) => Intent::Type(c),
+                None => if was_empty { Intent::PassThrough } else { Intent::NoOp },
+            }
+        };
+
+        // early exit for hardware passthrough
+        if matches!(intent, Intent::PassThrough) {
+            return AnkraResponse::Undefined;
+        }
+
+        // if typing a new character, trigger the O(N) predictive dictionary rebuild
+        if matches!(intent, Intent::Type(_) | Intent::Backspace | Intent::NoOp) {
+            match intent {
+                Intent::Type(c) => self.key_sequence.push(c),
+                Intent::Backspace => { self.key_sequence.pop(); },
+                _ => {}
+            }
+
+            self.index = 0;
+            self.relative_indices.clear();
+
+            // only sweep the dictionary if there's an active sequence to evaluate
+            if !self.key_sequence.is_empty() {
+                let mut exact_matches = Vec::new();
+                let mut prefix_suggestions = Vec::new();
+
+                for (i, entry) in self.table.entries.iter().enumerate() {
+                    if *entry.sequence == self.key_sequence {
+                        exact_matches.push(i);
+                    } else if entry.sequence.starts_with(&self.key_sequence) {
+                        prefix_suggestions.push(i);
+                    }
                 }
+
+                self.relative_indices = exact_matches;
+                self.relative_indices.extend(prefix_suggestions);
             }
         }
 
-        // only rebuild relative entries if this wasn't a static control action
-        if !is_control {
-            self.index = 0; // reset active item index on a fresh character input entry
-            self.relative_indices.clear(); // clear cache to rebuild for new sequence length
+        // pre-calculate commitment state
+        let is_committing = matches!(intent, Intent::Commit | Intent::CommitAndPass);
+        let is_raw = matches!(intent, Intent::RawCommit);
 
-            let mut exact_matches = Vec::new();
-            let mut prefix_suggestions = Vec::new();
-
-            for (i, entry) in self.table.entries.iter().enumerate() {
-                if *entry.sequence == self.key_sequence {
-                    // perfect sequence match (e.g., typed 'n' for '弓')
-                    exact_matches.push(i);
-                } else if entry.sequence.starts_with(&self.key_sequence) {
-                    // predictive match (e.g., typed 'n' for 'nrcku' / '阿爸')
-                    prefix_suggestions.push(i);
-                }
-            }
-
-            // combine them: Exact matches ALWAYS own the front of the candidate list!
-            self.relative_indices = exact_matches;
-            self.relative_indices.extend(prefix_suggestions);
-        }
-
-        // resolve the string out of the filtered entries and apply dynamic weight adjustments
-        let value = if raw_commit {
+        // resolve the string value and apply weight mutations
+        let value = if is_raw {
             self.key_sequence.clone()
         } else if let Some(&main_idx) = self.relative_indices.get(self.index) {
-            // weight mutation & bubble sorted in memory
-            if commit {
+            if is_committing {
                 self.uncommitted_weight_mutations += 1;
-
-                // increment the weight directly in the main array
                 self.table.entries[main_idx].weight = self.table.entries[main_idx].weight.saturating_add(1);
 
-                // bubble the entry up the array if it is now heavier than the item above it
                 let mut curr = main_idx;
                 while curr > 0 && self.table.entries[curr].weight > self.table.entries[curr - 1].weight {
                     self.table.entries.swap(curr, curr - 1);
                     curr -= 1;
                 }
-
-                // return the string from its new, bubbled-up location!
                 self.table.entries[curr].character.to_string()
             } else {
-                // just suggesting, don't mutate weights yet
                 self.table.entries[main_idx].character.to_string()
             }
         } else {
             self.key_sequence.clone()
         };
 
+        // yield the final declarative response
         if !self.key_sequence.is_empty() {
-            if commit || raw_commit {
+            if is_committing || is_raw {
                 self.reset();
-                return AnkraResponse::Commit(value);
+                if intent == Intent::CommitAndPass {
+                    AnkraResponse::CommitAndPass(value)
+                } else {
+                    AnkraResponse::Commit(value)
+                }
             } else {
-                return AnkraResponse::Suggest(value);
+                AnkraResponse::Suggest(value)
             }
-        }
-
-        self.reset();
-
-        if !was_empty {
-            AnkraResponse::Empty
         } else {
-            AnkraResponse::Undefined
+            self.reset();
+            // if the buffer was already empty before this stroke, let the key fall out to the OS natively
+            if intent == Intent::CommitAndPass || was_empty {
+                AnkraResponse::Undefined
+            } else {
+                AnkraResponse::Empty
+            }
         }
     }
 
@@ -325,7 +329,7 @@ mod tests {
         config.keys.insert(31, vec!['b']);
 
         // Mock the Commit key ('C') (let's say KeyCode 28, usually Enter)
-        config.specs.insert(28, vec!["C".to_string()]);
+        config.specs.insert(28, vec!["COMMIT".to_string()]);
 
         let entries = vec![
             Entry { character: Box::from("啊"), sequence: Box::from("a"), weight: 0 },

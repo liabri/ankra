@@ -345,3 +345,37 @@ fn cangjie_dynamic_weighting_exact_matches() {
         (65, 0, AnkraResponse::Commit(String::from("曰"))),
     ])
 }
+
+#[test]
+fn cangjie_punctuation_autocommit() {
+    // Tests that typing a punctuation mark immediately commits the exact match
+    // and passes the punctuation key down to the OS.
+    test_input(&[
+        // 1. Type 'q'. Buffer has "手".
+        (24, AnkraResponse::Suggest(String::from("手"))),
+
+        // 2. Type Comma (59). Must instantly commit "手" and signal passthrough for XKB!
+        (59, AnkraResponse::CommitAndPass(String::from("手"))),
+
+        // 3. Type Comma again. Buffer is empty, so it safely returns Undefined (raw hardware passthrough).
+        (59, AnkraResponse::Undefined),
+    ])
+}
+
+#[test]
+fn cangjie_autocommit_predictive_phrase() {
+    // Tests that typing a punctuation mark correctly commits a dynamically
+    // predicted phrase if one is currently taking priority in the buffer.
+    test_input(&[
+        (43, AnkraResponse::Suggest(String::from("竹"))),      // h
+        (24, AnkraResponse::Suggest(String::from("牛"))),      // hq -> exact match
+        (43, AnkraResponse::Suggest(String::from("我的"))),    // hqh -> heavy phrase prediction takes over
+
+        // Type Period (60). It should gracefully commit the phrase prediction "我的"
+        // and tell Wayland to inject the period immediately after.
+        (60, AnkraResponse::CommitAndPass(String::from("我的"))),
+
+        // Ensure the engine was completely reset and is ready for fresh input
+        (43, AnkraResponse::Suggest(String::from("竹"))),      // h
+    ])
+}

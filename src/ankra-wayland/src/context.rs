@@ -39,10 +39,10 @@ pub struct AnkraContext {
     vk: ZwpVirtualKeyboardV1,
     im: ZwpInputMethodV2,
     keymap_init: bool,
-    mod_state: bool,
+    modifiers: u32,
     im_done_serial: u32,
     is_global_active: Arc<AtomicBool>,
-    forwarded_presses: [bool; 512],
+    forwarded_presses: [bool; 512]
 }
 
 impl AnkraContext {
@@ -51,9 +51,9 @@ impl AnkraContext {
             engine: AnkraEngine::new(AnkraConfig { id: layout.to_string(), ..Default::default() }),
             im_active: false,
             keymap_init: false,
-            mod_state: true,
+            modifiers: 0,
             vk, im, im_done_serial: 0, is_global_active,
-            forwarded_presses: [false; 512],
+            forwarded_presses: [false; 512]
         }
     }
 
@@ -94,28 +94,53 @@ impl AnkraContext {
                 let key_idx = key as usize;
                 if key_idx >= 512 { return; }
 
-                let is_pressed = matches!(state, WEnum::Value(KeyState::Pressed));
+                let is_pressed = if let WEnum::Value(KeyState::Pressed) = state { true } else { false };
+                let has_control_mods = (self.modifiers & (4 | 8 | 64)) != 0; // immunizes against dirty background bits like NumLock
 
-                if self.im_active && self.mod_state && self.is_global_active.load(Ordering::Relaxed) {
+                if self.im_active && !has_control_mods && self.is_global_active.load(Ordering::Relaxed) {
+                    let level = (self.modifiers & 1) as usize;
                     if is_pressed {
-                        match self.engine.on_key_press((key + 8) as u16, 0) {
-                            AnkraResponse::Suggest(s) => self.im.set_preedit_string(s.clone(), 0, s.len() as i32),
-                            response => {
+                        match self.engine.on_key_press((key + 8) as u16, level) {
+                            AnkraResponse::Suggest(s) => {
+                                self.im.set_preedit_string(s.clone(), 0, s.len() as i32);
+                            }
+
+                            AnkraResponse::Commit(s) => {
                                 self.im.set_preedit_string(String::new(), -1, -1);
-                                match response {
-                                    AnkraResponse::Undefined => {
-                                        self.forwarded_presses[key_idx] = true;
-                                        self.vk.key(time, key, 1);
-                                    }
-                                    AnkraResponse::Commit(s) => self.im.commit_string(s),
-                                    _ => {}
-                                }
+                                self.im.commit_string(s);
+                                self.im.commit(self.im_done_serial);
+                            }
+
+                            AnkraResponse::CommitAndPass(s) => {
+                                self.im.set_preedit_string(String::new(), -1, -1);
+                                self.im.commit_string(s);
+
+                                // flush the software text state to the Wayland server FIRST
+                                self.im.commit(self.im_done_serial);
+
+                                // inject the hardware punctuation key SECOND
+                                self.forwarded_presses[key_idx] = true;
+                                self.vk.key(time, key, 1);
+                                return;
+                            }
+
+                            AnkraResponse::Undefined => {
+                                self.im.set_preedit_string(String::new(), -1, -1);
+                                self.im.commit(self.im_done_serial);
+
+                                self.forwarded_presses[key_idx] = true;
+                                self.vk.key(time, key, 1);
+                                return;
+                            }
+
+                            AnkraResponse::Empty => {
+                                self.im.set_preedit_string(String::new(), -1, -1);
                             }
                         }
                         self.im.commit(self.im_done_serial);
                     } else {
-                        let _ = self.engine.on_key_release((key + 8) as u16, 0);
-                        if self.forwarded_presses[key_idx] || matches!(key, 28 | 57 | 14 | 1) {
+                        let _ = self.engine.on_key_release((key + 8) as u16, level);
+                        if self.forwarded_presses[key_idx] || key == 28 || key == 57 || key == 14 || key == 1 {
                             self.vk.key(time, key, 0);
                             self.forwarded_presses[key_idx] = false;
                         }
@@ -127,7 +152,7 @@ impl AnkraContext {
             }
 
             KeyEvent::Modifiers { mods_depressed, mods_latched, mods_locked, group, .. } => {
-                self.mod_state = mods_depressed == 0 && mods_latched == 0 && mods_locked == 0;
+                self.modifiers = mods_depressed;
                 self.vk.modifiers(mods_depressed, mods_latched, mods_locked, group);
             }
             _ => {}
