@@ -1,6 +1,8 @@
 # ankra
 A flexible, table-based input method engine (IME) built specifically for Unix systems running Wayland.
 
+![ankra demo](media/demo.gif)
+
 ## motivation
 I wanted a way to input Chinese characters natively on Wayland. Not satisfied with the ambiguity of Pinyin, I looked into structural, table-based IMEs (such as Cangjie) and was impressed by their speed and precision. Sadly, robust support for table-based input methods on Wayland is still lacking. Rather than compromising, I decided to build a lean, native tool from the ground up.
 
